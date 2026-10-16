@@ -1,0 +1,45 @@
+# FGA desktop host — migration in progress
+
+This is a separate desktop fork of Fate/Grand Automata, based on
+`e138a15273dee9cac342833ee2d8aee93d8ae700`. The original Android app and the
+`libautomata` / `scripts` sources are unchanged. Desktop additions live here.
+
+The desktop build imports the original JVM modules by project directory. It does
+not port their algorithms to Python or drive the installed Android FGA UI.
+
+## Build
+
+Use JDK 21 (the same toolchain as upstream):
+
+```sh
+./desktop/run :desktop-cli:installDist :scripts:test --no-daemon
+./desktop/app/build/install/desktop-cli/bin/desktop-cli capabilities
+./desktop/app/build/install/desktop-cli/bin/desktop-cli parse 'a1b2c3,4,#,5,#,6'
+./desktop/app/build/install/desktop-cli/bin/desktop-cli geometry 1920 1080
+./desktop/app/build/install/desktop-cli/bin/desktop-cli screenshot SERIAL output.png
+```
+
+The original Android build continues to use the root settings/build files.
+No Android SDK is required for the separate desktop build.
+
+## Implemented
+
+- JVM CLI using the **original** `AutoSkillCommand` parser and `FgoGameAreaManager`.
+- Host ADB transport, with explicit serial, process deadlines and PNG validation.
+- `AdbGestures : GestureService`, accepting coordinates already transformed by upstream.
+- `AdbScreenshots : ScreenshotService`, with injected PNG-to-Pattern decoding.
+- Capability response explicitly returns `battle: false`.
+
+## Required before desktop battle can run
+
+1. Port Android `DroidCvPattern` to a JVM OpenCV implementation, retaining the matching logic.
+2. Implement desktop image asset loading and OCR.
+3. Provide desktop implementations of the existing preference interfaces.
+4. Wire upstream `AutoBattle`, its modules and libautomata services into a desktop run scope.
+5. Validate with replay images and a bounded real-device battle; only then expose battle capability through fgo-agent.
+
+The CLI's current parse output is a diagnostic list of upstream action types, not
+an executable converted battle plan. Gesture interfaces are internal adapters;
+no raw tap command is exposed by the CLI. Full battle execution is not yet available.
+
+MIT license inherited from the upstream repository; see ../LICENSE.

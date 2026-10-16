@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+DESKTOP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$DESKTOP_ROOT/../gradlew" -p "$DESKTOP_ROOT" "$@"
