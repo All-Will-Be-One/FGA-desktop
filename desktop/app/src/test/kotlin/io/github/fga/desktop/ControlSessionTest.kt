@@ -143,4 +143,32 @@ class ControlSessionTest {
         }
     }
 
+    @Test fun entryWaitHasWireEvidenceAndOnlyOneInput() = withSession { s,t,observe,advance ->
+        val first=s.request(q("""{"method":"boundary_landing","scene":"formation"}"""))
+        assertEquals("formation_start",first["action"]!!.jsonPrimitive.content)
+        val frame=observe()
+        s.request(q("""{"method":"action","frame_id":"$frame","action":"formation_start"}"""))
+        advance(31000)
+        val wait=s.request(q("""{"method":"advance","scene":"loading"}"""))
+        assertEquals("observe",wait["kind"]!!.jsonPrimitive.content)
+        assertEquals(90000L,wait["wait_budget_ms"]!!.jsonPrimitive.long)
+        assertEquals(31000L,wait["wait_elapsed_ms"]!!.jsonPrimitive.long)
+        assertEquals("formation_start",wait["awaiting_action"]!!.jsonPrimitive.content)
+        advance(1000)
+        assertEquals("turn",s.request(q("""{"method":"advance","scene":"turn"}"""))["kind"]!!.jsonPrimitive.content)
+        assertEquals(1,t.inputs.size)
+    }
+    @Test fun jobDeadlineAndCloseCanEndEntryWaitEarly() {
+        for(close in listOf(false,true)) {
+            val t=Transport();var now=1000L
+            val s=ControlSession("FIXTURE","JP",t,clock={now})
+            try {
+                s.request(q(init().toString().replace("\"timeout\":120","\"timeout\":20")))
+                s.request(q("""{"method":"boundary_landing","scene":"formation"}"""))
+                if(close)s.close() else now+=20000
+                assertFails { s.request(q("""{"method":"advance","scene":"loading"}""")) }
+                assertTrue(t.inputs.isEmpty())
+            } finally { s.close() }
+        }
+    }
 }

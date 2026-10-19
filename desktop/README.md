@@ -43,3 +43,7 @@ an executable converted battle plan. Gesture interfaces are internal adapters;
 no raw tap command is exposed by the CLI. Full battle execution is not yet available.
 
 MIT license inherited from the upstream repository; see ../LICENSE.
+
+## Routine entry waiting
+
+`RoutineBattle` allows 90 seconds after formation start/confirmation, with one fixed entry deadline. Other transitions keep their 30-second deadline. Frame IDs and unknown/loading changes never renew either budget or trigger an input retry. The host job deadline and wrapper no-progress/cancellation checks still apply. Passive decisions include `awaiting_action`, `scene`, `wait_elapsed_ms`, and `wait_budget_ms` on the control wire. This policy is covered with fake-clock JVM tests; live transition timing requires separate acceptance.

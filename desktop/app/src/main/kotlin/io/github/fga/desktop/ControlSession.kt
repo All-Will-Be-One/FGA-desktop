@@ -136,6 +136,8 @@ class ControlSession(private val serial: String, private val region: String,
                 buildJsonObject {
                     put("kind",d.kind);d.reason?.let { put("reason",it) };d.action?.let { put("action",it) }
                     put("completed_battles",d.wins);put("turn",d.turn);put("new_victory",d.newVictory)
+                    d.awaitingAction?.let { put("awaiting_action",it) };d.scene?.let { put("scene",it) }
+                    d.waitElapsedMs?.let { put("wait_elapsed_ms",it) };d.waitBudgetMs?.let { put("wait_budget_ms",it) }
                 }
             }
             "observe" -> observe()

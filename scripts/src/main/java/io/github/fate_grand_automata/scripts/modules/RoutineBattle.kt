@@ -5,9 +5,12 @@ package io.github.fate_grand_automata.scripts.modules
  */
 class RoutineBattle(private val operation:String, private val target:Int?,
     private val untilApEmpty:Boolean, private val clock:()->Long={System.nanoTime()/1_000_000},
-    private val transitionTimeout:Long=30_000) {
+    private val transitionTimeout:Long=30_000,
+    private val entryTimeout:Long=90_000) {
     data class Decision(val kind:String,val reason:String?=null,val action:String?=null,
-        val wins:Int=0,val turn:Int=0,val newVictory:Boolean=false)
+        val wins:Int=0,val turn:Int=0,val newVictory:Boolean=false,
+        val awaitingAction:String?=null,val scene:String?=null,
+        val waitElapsedMs:Long?=null,val waitBudgetMs:Long?=null)
     var wins=0; private set
     var turn=0; private set
     private var started=false
@@ -17,10 +20,13 @@ class RoutineBattle(private val operation:String, private val target:Int?,
     private var awaiting:String?=null
     private var inputPage:String?=null
     private var waitingSince=0L
+    private var entrySince:Long?=null
+    private var lastScene="unknown"
     private var declining=false
     private var terminal:Decision?=null
     private val resultPages=mutableSetOf<String>()
     init {
+        require(transitionTimeout>0 && entryTimeout>0)
         require(operation in setOf("battle","farm"))
         require(if(untilApEmpty) operation=="farm" && target==null else target!=null && target in 1..100)
         require(operation!="battle" || target==1)
@@ -29,15 +35,28 @@ class RoutineBattle(private val operation:String, private val target:Int?,
         val d=Decision(if(success) "complete" else "handoff",reason,wins=wins,turn=turn)
         terminal=d;return d
     }
-    private fun waitPage():Decision = if(clock()-waitingSince>=transitionTimeout) stop("transition_timeout")
-        else Decision("observe",wins=wins,turn=turn)
+    private fun waitPage():Decision {
+        val budget=if(awaiting in setOf("formation_start","formation_confirm")) entryTimeout else transitionTimeout
+        val elapsed=clock()-(if(awaiting in setOf("formation_start","formation_confirm")) entrySince ?: waitingSince else waitingSince)
+        val decision=if(elapsed>=budget) stop("transition_timeout") else Decision("observe",wins=wins,turn=turn)
+        val diagnosed=decision.copy(awaitingAction=awaiting,scene=lastScene,waitElapsedMs=elapsed,waitBudgetMs=budget)
+        if(terminal!=null)terminal=diagnosed
+        return diagnosed
+    }
     private fun input(action:String,page:String):Decision {
         if(inputPage==page && awaiting!=null)return waitPage()
+        if(action=="formation_start" && awaiting in setOf("formation_start","formation_confirm"))return waitPage()
+        if(action=="formation_confirm" && awaiting=="formation_confirm")return waitPage()
+        if(action in setOf("formation_start","formation_confirm")) {
+            if(entrySince==null)entrySince=clock()
+            if(clock()-entrySince!!>=entryTimeout)return waitPage()
+        } else entrySince=null
         awaiting=action;inputPage=page;waitingSince=clock()
         return Decision("action",action=action,wins=wins,turn=turn)
     }
     fun advance(scene:String,page:String=scene):Decision {
         terminal?.let{return it}
+        lastScene=scene
         if(scene=="ap_empty")return stop("ap_empty",untilApEmpty)
         if(scene=="defeated")return stop(if(inBattle) "lost" else "unsupported_start_screen")
         if(declining) {
@@ -84,7 +103,7 @@ class RoutineBattle(private val operation:String, private val target:Int?,
         if(scene=="turn") {
             if(settling && target!=null && wins>=target)return stop("unexpected_battle_after_target")
             if(settling)turn=0
-            awaiting=null;inputPage=null;settling=false;started=true;inBattle=true;turn++
+            awaiting=null;inputPage=null;entrySince=null;settling=false;started=true;inBattle=true;turn++
             return Decision("turn",wins=wins,turn=turn)
         }
         if(inBattle)return stop("battle_screen_requires_agent")

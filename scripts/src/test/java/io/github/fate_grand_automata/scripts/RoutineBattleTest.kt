@@ -107,4 +107,42 @@ class RoutineBattleTest {
         assertEquals("complete",r.finishBoundary().kind)
     }
 
+    @Test fun entryWaitSurvivesThirtySecondsWithoutRetry() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");assertEquals("formation_start",r.advance("formation").action)
+        for(t in listOf(1000L,15000L,31000L,45000L)) {
+            now=t;val d=r.advance(if(t==15000L) "loading" else "unknown", "frame-$t")
+            assertEquals("observe",d.kind);assertNull(d.action)
+            assertEquals(90000L,d.waitBudgetMs);assertEquals(t,d.waitElapsedMs)
+            assertEquals("formation_start",d.awaitingAction)
+        }
+        now=46000;assertEquals("turn",r.advance("turn").kind)
+    }
+    @Test fun changingFrameIdsAndScenesDoNotResetEntryDeadline() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");r.advance("formation")
+        now=89999;assertEquals("observe",r.advance("loading","new-frame").kind)
+        now=90000;val d=r.advance("unknown","another-frame")
+        assertEquals("transition_timeout",d.reason);assertEquals(90000L,d.waitElapsedMs)
+        assertEquals("unknown",d.scene)
+        assertEquals(d,r.advance("turn"))
+    }
+    @Test fun entryDialogStillHandsOffAndOtherWaitsStayThirtySeconds() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");now=30000
+        assertEquals("transition_timeout",r.advance("loading").reason)
+        val entry=RoutineBattle("farm",1,false,{now})
+        entry.advance("quest");entry.advance("formation")
+        assertEquals("unverified_dialog",entry.advance("dialog").reason)
+    }
+    @Test fun confirmationCannotRenewEntryBudget() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");r.advance("formation")
+        now=10000;assertEquals("observe",r.advance("formation","new-frame").kind)
+        now=20000;assertEquals("formation_confirm",r.advance("formation_confirm").action)
+        now=25000;assertEquals("observe",r.advance("formation","another-frame").kind)
+        assertEquals("observe",r.advance("formation_confirm","another-dialog-frame").kind)
+        now=89999;assertEquals(89999L,r.advance("loading").waitElapsedMs)
+        now=90000;assertEquals("transition_timeout",r.advance("loading").reason)
+    }
 }
