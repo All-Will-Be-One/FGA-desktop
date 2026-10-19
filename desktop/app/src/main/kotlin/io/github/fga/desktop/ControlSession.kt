@@ -41,6 +41,7 @@ class ControlSession(private val serial: String, private val region: String,
         val current=image()
         check(Size(current.width,current.height)==expectedSize) { "Display geometry changed" }
         foreground(); checkTime()
+        check(routine?.checkEntryDeadline()==null) { "transition_timeout" }
     }
     private fun frame(id: String): Frame {
         val f=frames[id] ?: error("Unknown frame")
@@ -138,6 +139,8 @@ class ControlSession(private val serial: String, private val region: String,
                     put("completed_battles",d.wins);put("turn",d.turn);put("new_victory",d.newVictory)
                     d.awaitingAction?.let { put("awaiting_action",it) };d.scene?.let { put("scene",it) }
                     d.waitElapsedMs?.let { put("wait_elapsed_ms",it) };d.waitBudgetMs?.let { put("wait_budget_ms",it) }
+                    d.entryStartedAtMs?.let { put("entry_started_at_ms",it) };d.entryDeadlineMs?.let { put("entry_deadline_ms",it) }
+                    d.entryIssuedActions?.let { actions -> putJsonArray("entry_issued_actions") { actions.forEach { add(it) } } }
                 }
             }
             "observe" -> observe()

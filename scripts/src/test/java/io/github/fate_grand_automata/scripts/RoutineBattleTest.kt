@@ -145,4 +145,84 @@ class RoutineBattleTest {
         now=89999;assertEquals(89999L,r.advance("loading").waitElapsedMs)
         now=90000;assertEquals("transition_timeout",r.advance("loading").reason)
     }
+    @Test fun entryDeadlinePrecedesSuccessorsAndActionsAtExactCutoff() {
+        for(scene in listOf("turn","boost_selection","formation_confirm")) {
+            for(at in listOf(89999L,90000L,90001L)) {
+                var now=0L;val r=RoutineBattle("farm",1,false,{now})
+                r.advance("quest");r.advance("formation")
+                now=89999;r.advance("loading","capture-began-before-cutoff")
+                now=at;val d=r.advance(scene,"capture-completed-$at")
+                if(at<90000) {
+                    assertEquals(if(scene=="turn") "turn" else "action",d.kind)
+                } else {
+                    assertEquals("transition_timeout",d.reason,"$scene at $at")
+                    assertNull(d.action);assertEquals(0,d.turn)
+                    assertEquals(at,d.waitElapsedMs);assertEquals(90000L,d.waitBudgetMs)
+                    assertEquals(scene,d.scene);assertEquals("formation_start",d.awaitingAction)
+                    assertEquals(d,r.advance("turn"))
+                }
+            }
+        }
+    }
+    @Test fun boostReturnCannotRenewEntryOrRepeatFormationStart() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");assertEquals("formation_start",r.advance("formation").action)
+        now=80000;assertEquals("boost_skip",r.advance("boost_selection").action)
+        now=81000;val returned=r.advance("formation","new-formation-frame")
+        assertEquals("observe",returned.kind);assertNull(returned.action)
+        assertEquals(81000L,returned.waitElapsedMs)
+        now=150000;val expired=r.advance("loading")
+        assertEquals("transition_timeout",expired.reason)
+        assertEquals(150000L,expired.waitElapsedMs);assertEquals(90000L,expired.waitBudgetMs)
+    }
+    @Test fun boundaryAndInterleavingsKeepEpisodeInputLedger() {
+        var now=0L;val r=RoutineBattle("farm",1,false,{now})
+        r.advance("quest");r.advance("formation")
+        now=10000;assertEquals("boost_skip",r.advance("boost_selection","boost-1").action)
+        now=20000;assertEquals("formation_confirm",r.advance("formation_confirm","confirm-1").action)
+        now=30000;assertEquals("pre_boundary",r.advance("boundary").kind)
+        now=40000;assertNull(r.boundaryLanding("formation").action)
+        now=50000;assertNull(r.advance("boost_selection","boost-2").action)
+        now=60000;assertNull(r.advance("formation_confirm","confirm-2").action)
+        now=89999;assertEquals(89999L,r.advance("loading").waitElapsedMs)
+        now=90000;val expired=r.boundaryLanding("turn")
+        assertEquals("transition_timeout",expired.reason);assertEquals(90000L,expired.waitElapsedMs)
+    }
+    @Test fun boundaryCannotHideDeadlineFromUnknownOrFinish() {
+        for(finish in listOf(false,true)) {
+            var now=0L;val r=RoutineBattle("farm",1,false,{now})
+            r.advance("quest");r.advance("formation");r.advance("boundary")
+            now=90000
+            val d=if(finish) r.finishBoundary() else r.advance("unknown")
+            assertEquals("transition_timeout",d.reason);assertEquals(90000L,d.waitElapsedMs)
+        }
+    }
+    @Test fun provenTurnStartsANewEntryEpisodeOnlyAfterVictory() {
+        var now=0L;val r=RoutineBattle("farm",2,false,{now})
+        r.advance("quest");r.advance("formation");r.advance("boost_selection");r.advance("formation_confirm")
+        now=80000;assertEquals("turn",r.advance("turn").kind)
+        r.advance("result");r.advance("repeat_verified");r.advance("support")
+        now=150000;assertEquals("formation_start",r.advance("formation").action)
+        now=151000;assertEquals("boost_skip",r.advance("boost_selection").action)
+        now=239999;assertEquals(89999L,r.advance("loading").waitElapsedMs)
+        now=240000;assertEquals("transition_timeout",r.advance("turn").reason)
+    }
+    @Test fun unexpectedEntryNavigationHandsOffWithoutStartingAnotherAttempt() {
+        for(scene in listOf("quest","support","support_empty","repeat_verified")) {
+            var now=0L;val r=RoutineBattle("farm",2,false,{now})
+            r.advance("quest");r.advance("formation")
+            now=80000;val d=r.advance(scene,"return-$scene")
+            assertEquals("unexpected_entry_return",d.reason);assertNull(d.action)
+            now=150000;assertEquals(d,r.advance("formation","another-start"))
+        }
+    }
+    @Test fun boostBeforeFormationOpensTheSameFixedEntryEpisode() {
+        var now=0L;val r=RoutineBattle("farm",2,false,{now})
+        assertEquals("boost_skip",r.boundaryLanding("boost_selection").action)
+        now=20000;assertEquals("formation_start",r.advance("formation").action)
+        now=30000;val repeated=r.advance("boost_selection","boost-return")
+        assertEquals("observe",repeated.kind);assertNull(repeated.action)
+        assertEquals(listOf("boost_skip","formation_start"),repeated.entryIssuedActions)
+        now=90000;assertEquals("transition_timeout",r.advance("turn").reason)
+    }
 }

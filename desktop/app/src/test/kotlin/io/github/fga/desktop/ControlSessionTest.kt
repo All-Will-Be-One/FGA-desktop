@@ -14,6 +14,7 @@ class ControlSessionTest {
         var width=1280
         var height=720
         var failInput=0
+        var duringCapture:()->Unit={}
         val inputs=mutableListOf<List<String>>()
         override fun execute(vararg args:String):ByteArray {
             check(!closed)
@@ -24,6 +25,7 @@ class ControlSessionTest {
             return byteArrayOf()
         }
         override fun screenshot():ByteArray = ByteArrayOutputStream().use { out ->
+            duringCapture()
             val image=BufferedImage(width,height,BufferedImage.TYPE_INT_RGB)
             // Deterministic center marker proves normalized pixels and input use the same crop.
             image.setRGB(width/2,height/2,0xFFFFFF)
@@ -170,5 +172,38 @@ class ControlSessionTest {
                 assertTrue(t.inputs.isEmpty())
             } finally { s.close() }
         }
+    }
+    @Test fun captureCrossingEntryCutoffCannotAcceptReadyOrAuthorizeBoost() {
+        for(scene in listOf("turn","boost_selection","formation_confirm")) withSession { s,t,observe,advance ->
+            s.request(q("""{"method":"boundary_landing","scene":"formation"}"""))
+            advance(89999)
+            t.duringCapture={advance(2)};observe();t.duringCapture={}
+            val d=s.request(q("""{"method":"advance","scene":"$scene"}"""))
+            assertEquals("transition_timeout",d["reason"]!!.jsonPrimitive.content)
+            assertFalse("action" in d);assertEquals(0,d["turn"]!!.jsonPrimitive.int)
+            assertEquals(90001L,d["wait_elapsed_ms"]!!.jsonPrimitive.long)
+            assertEquals(1000L,d["entry_started_at_ms"]!!.jsonPrimitive.long)
+            assertEquals(91000L,d["entry_deadline_ms"]!!.jsonPrimitive.long)
+            assertEquals(listOf("formation_start"),d["entry_issued_actions"]!!.jsonArray.map { it.jsonPrimitive.content })
+            assertTrue(t.inputs.isEmpty())
+        }
+    }
+    @Test fun inputGuardCrossingEntryDeadlinePreventsAuthorizedBoostDispatch() = withSession { s,t,observe,advance ->
+        s.request(q("""{"method":"boundary_landing","scene":"formation"}"""))
+        val initial=observe()
+        s.request(q("""{"method":"action","frame_id":"$initial","action":"formation_start"}"""))
+        advance(89999)
+        val d=s.request(q("""{"method":"advance","scene":"boost_selection"}"""))
+        assertEquals("boost_skip",d["action"]!!.jsonPrimitive.content)
+        val captured=observe()
+        // Fresh frame, but a blocking foreground/geometry guard crosses entry expiry.
+        t.duringCapture={advance(2)}
+        val failure=assertFails { s.request(q("""{"method":"action","frame_id":"$captured","action":"boost_skip","x":820,"y":650,"evidence":"boost_selection"}""")) }
+        assertEquals("transition_timeout",failure.message)
+        assertEquals(1,t.inputs.size)
+        val expired=s.request(q("""{"method":"advance","scene":"turn"}"""))
+        assertEquals("transition_timeout",expired["reason"]!!.jsonPrimitive.content)
+        assertEquals(90001L,expired["wait_elapsed_ms"]!!.jsonPrimitive.long)
+        assertEquals(listOf("formation_start","boost_skip"),expired["entry_issued_actions"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
 }
