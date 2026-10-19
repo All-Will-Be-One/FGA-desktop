@@ -15,8 +15,9 @@ import javax.inject.Inject
 @ScriptScope
 class BattleScreenLocations @Inject constructor(
     scriptAreaTransforms: IScriptAreaTransforms,
-    val master: MasterLocations
+    private val masterProvider: javax.inject.Provider<MasterLocations>
 ) : IScriptAreaTransforms by scriptAreaTransforms {
+    val master get() = masterProvider.get()
     fun locate(orderChangeMember: OrderChangeMember) = when (orderChangeMember) {
         OrderChangeMember.Starting.A -> -1000
         OrderChangeMember.Starting.B -> -600
@@ -57,6 +58,15 @@ class BattleScreenLocations @Inject constructor(
         EnemyTarget.B -> 570
         EnemyTarget.C -> 1050
     }.let { x -> Location(x + if (isWide) 183 else 0, 80) }
+
+    // Six-enemy two-row header layout: centers of the published detector HP
+    // regions, expressed in FGA script coordinates, not native key bindings.
+    fun sixEnemyTarget(index:Int):Location {
+        require(index in 0..5)
+        return Location(2*(238+index%3*200-index/3*100),2*(40+index/3*99)).let {
+            it + Location((scriptArea.width-2560)/2,0)
+        }
+    }
 
     fun dangerRegion(enemy: EnemyTarget) = when (enemy) {
         EnemyTarget.A -> Region(0, 0, 485, 220)

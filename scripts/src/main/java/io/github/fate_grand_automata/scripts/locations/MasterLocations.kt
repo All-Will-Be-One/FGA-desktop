@@ -22,8 +22,7 @@ class MasterLocations @Inject constructor(
     // so we use locations relative to a matched location
     private val masterOffsetNewUI: Location by lazy {
         automataApi.run {
-            Region(-400, 360, 400, 80)
-                .xFromRight()
+            MasterAnchoredLocations.searchRegion(this@MasterLocations)
                 .find(images[Images.BattleMenu])
                 ?.region
                 ?.center
@@ -34,19 +33,13 @@ class MasterLocations @Inject constructor(
         }
     }
 
-    fun locate(skill: Skill.Master) = when (skill) {
-        Skill.Master.A -> -740
-        Skill.Master.B -> -560
-        Skill.Master.C -> -400
-    }.let { x ->
-        Location(x + 178, 620) + masterOffsetNewUI
-    }
+    fun locate(skill: Skill.Master) = MasterAnchoredLocations.locate(skill, masterOffsetNewUI)
 
     val stageCountRegion
         get() = Region(if (isWide) -571 else -638, 23, 33, 53) + masterOffsetNewUI
 
     val masterSkillOpenClick
-        get() = Location(0, 640) + masterOffsetNewUI
+        get() = MasterAnchoredLocations.open(masterOffsetNewUI)
 
     val commandSpellSearchRegion = when (isWide) {
         true -> Region(-590, 180, 190, 120).xFromRight()
