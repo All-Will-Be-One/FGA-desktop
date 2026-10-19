@@ -9,6 +9,7 @@ import kotlinx.serialization.json.*
 /** Desktop entry point. Every parsed command and geometry result comes from upstream. */
 fun main(args: Array<String>) {
     try {
+        if (args.firstOrNull()=="control") { require(args.size==3); control(args[1],args[2]); return }
         val result = when (args.firstOrNull()) {
             "capabilities" -> buildJsonObject {
                 put("engine", "fga-desktop")
@@ -16,7 +17,10 @@ fun main(args: Array<String>) {
                 put("geometry", true)
                 put("screenshot", true)
                 put("battle", false)
-                put("reason", "Desktop imaging, OCR, preferences and script wiring are not connected yet")
+                put("controlled_routine", true)
+                put("routine_state", "FGA.RoutineBattle")
+                put("observation_provider", "external-readonly")
+                put("reason", "Standalone scripted battle is unavailable; routine execution requires the managed Smart policy/observation worker")
             }
             "screenshot" -> {
                 require(args.size == 3) { "screenshot requires SERIAL OUTPUT.png" }

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CLASSPATH_FILE="$ROOT/app/build/runtime-classpath.txt"
+if [ ! -f "$CLASSPATH_FILE" ]; then
+  echo 'FGA runtime not built: run desktop/run :desktop-cli:prepareRuntime --offline' >&2
+  exit 2
+fi
+if [ -n "${JAVA_HOME:-}" ]; then
+  JAVA="$JAVA_HOME/bin/java"
+else
+  JAVA=java
+fi
+exec "$JAVA" -Djava.awt.headless=true -cp "$(cat "$CLASSPATH_FILE")" io.github.fga.desktop.MainKt "$@"
