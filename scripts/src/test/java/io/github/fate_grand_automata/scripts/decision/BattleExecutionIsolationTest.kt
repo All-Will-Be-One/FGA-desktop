@@ -87,7 +87,7 @@ class BattleExecutionIsolationTest {
         val f = Fixture(external = true)
         f.battle.performBattle()
         verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, null) }
-        verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1), any(), any()) }
+        verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1), any()) }
         verify(exactly = 0) { f.autoSkill.execute(any(), any()) }
         verify(exactly = 0) { f.spam.spamSkills() }
         verify(exactly = 0) { f.autoTarget.choose() }
@@ -102,8 +102,23 @@ class BattleExecutionIsolationTest {
         verify(exactly = 1) { f.autoSkill.execute(any(), any()) }
         verify(exactly = 1) { f.spam.spamSkills() }
         verify(exactly = 1) { f.card.clickCommandCards(any(), NPUsage.none) }
-        verify(exactly = 0) { f.externalCards.executeOrder(any(), any(), any()) }
+        verify(exactly = 0) { f.externalCards.executeOrder(any(), any()) }
         verify(exactly = 0) { f.provider.await(any(), any(), any()) }
+    }
+
+    @Test
+    fun `card delivery can finish during animation without publishing another actionable turn`() {
+        val f = Fixture(external = true)
+        every { f.externalCards.executeOrder(any(), any()) } answers { f.sceneVisible = false }
+        f.battle.performBattle()
+        assertTrue(!f.battle.isIdle())
+        verify(exactly = 1) { f.provider.completed(match { it.planId == "cards" }) }
+        verify(exactly = 1) { f.provider.finishedTurn(any()) }
+        verify(exactly = 3) { f.provider.await(any(), any(), any()) }
+        // AutoBattle's existing screen loop cannot enter performBattle again
+        // until its normal native BattleScreen detector sees an idle scene.
+        f.sceneVisible = true
+        assertTrue(f.battle.isIdle())
     }
 
     @Test
@@ -158,7 +173,7 @@ class BattleExecutionIsolationTest {
             verify(exactly = 1) { f.provider.await(any(), any(), any()) }
             verify(exactly = 1) { f.provider.failed(match { it.planId == "skill" }, any()) }
             verify(exactly = 0) { f.provider.completed(any()) }
-            verify(exactly = 0) { f.externalCards.executeOrder(any(), any(), any()) }
+            verify(exactly = 0) { f.externalCards.executeOrder(any(), any()) }
         }
     }
 }

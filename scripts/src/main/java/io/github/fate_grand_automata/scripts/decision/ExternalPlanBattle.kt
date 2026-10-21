@@ -59,20 +59,6 @@ class ExternalPlanBattle @Inject constructor(
         if (!externalSkillsSceneVisible()) throw NativeDecisionException("UnsupportedNativeSkillSceneEvidence")
     }
 
-    /** Uses only scene evidence already used by AutoBattle, and never declares a victory. */
-    private fun nativeTurnTransitionObserved(): Boolean = useSameSnapIn {
-        when {
-            locations.npStartedRegion.isBlack() -> true
-            prefs.gameServer.betterFgo && locations.npStartedRegion.isWhite() -> true
-            images[Images.Result] in locations.resultScreenRegion -> true
-            images[Images.Bond] in locations.resultBondRegion -> true
-            images[Images.MasterLevelUp] in locations.resultMasterLvlUpRegion -> true
-            images[Images.MasterExp] in locations.resultMasterExpRegion -> true
-            externalSkillsSceneVisible() -> true
-            else -> false
-        }
-    }
-
     fun executeTurn(clickAttack: () -> Unit) {
         if (externalBattle != state.runs) {
             externalBattle = state.runs
@@ -128,7 +114,7 @@ class ExternalPlanBattle @Inject constructor(
                 requireStableExternalSkillsScene()
             }
             override fun executeCards(order: List<Int>, cards: List<NativeDecisionCard>) {
-                cardExecutor.executeOrder(order, cards, ::nativeTurnTransitionObserved)
+                cardExecutor.executeOrder(order, cards)
             }
         })
     }

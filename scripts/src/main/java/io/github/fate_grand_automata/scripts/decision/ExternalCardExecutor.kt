@@ -9,7 +9,6 @@ import io.github.fate_grand_automata.scripts.modules.Caster
 import io.github.fate_grand_automata.scripts.modules.ServantTracker
 import io.github.lib_automata.dagger.ScriptScope
 import javax.inject.Inject
-import kotlin.time.TimeSource
 import kotlin.time.Duration.Companion.seconds
 
 /** Mechanical external card delivery, isolated from upstream priority and script execution. */
@@ -45,23 +44,12 @@ class ExternalCardExecutor @Inject constructor(
     }
 
     /** Execute the external order without invoking priority, NP spam, or automatic fallback. */
-    fun executeOrder(order: List<Int>, expected: List<NativeDecisionCard>, transitionObserved: () -> Boolean) {
+    fun executeOrder(order: List<Int>, expected: List<NativeDecisionCard>) {
         validateNativeHand(expected)
         order.filter { it >= 6 }.forEach {
             require(servantTracker.deployed[CommandCard.NP.list[it - 6].toFieldSlot()]?.let { slot -> slot != TeamSlot.Unknown } == true) {
                 "UnavailableNativeNpSlot"
             }
-        }
-        fun awaitTransition() {
-            val started = TimeSource.Monotonic.markNow()
-            while (started.elapsedNow() < 5.seconds) {
-                if (transitionObserved()) {
-                    0.5.seconds.wait()
-                    if (transitionObserved()) return
-                }
-                0.5.seconds.wait()
-            }
-            throw NativeDecisionException("UnsupportedPartialCardSelectionEvidence: no positive native turn transition")
         }
         deliverNativeCardOrder(order, { nativePane(expected) }, { id, finalChoice ->
             when (id) {
@@ -70,7 +58,12 @@ class ExternalCardExecutor @Inject constructor(
                 else -> throw NativeDecisionException("UnsupportedNativeCard")
             }
             if (!finalChoice) 0.5.seconds.wait()
-        }, ::awaitTransition)
+        }, {
+            // Match Battle.performBattle's ordinary post-card pause, then return
+            // to AutoBattle. Its existing loop owns NP/wave animations, the next
+            // actionable turn and results. Delivery is not evidence of any of them.
+            0.5.seconds.wait()
+        })
     }
 
 }

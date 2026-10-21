@@ -3,6 +3,7 @@ package io.github.fate_grand_automata.scripts.decision
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import io.github.lib_automata.ScriptAbortException
 
 class NativeCardTransactionTest {
     @Test
@@ -14,17 +15,17 @@ class NativeCardTransactionTest {
     }
 
     @Test
-    fun `missing positive transition after three deliveries fails without fourth input`() {
+    fun `native cancellation after delivery propagates without a fourth input or replay`() {
         val delivered = mutableListOf<Int>()
-        assertFailsWith<NativeDecisionException> {
+        assertFailsWith<ScriptAbortException> {
             deliverNativeCardOrder(listOf(6, 1, 2, 3, 4), { NativeCardPane.Visible }, { id, _ -> delivered += id },
-                { throw NativeDecisionException("UnsupportedPartialCardSelectionEvidence") })
+                { throw ScriptAbortException() })
         }
         assertEquals(listOf(6, 1, 2), delivered)
     }
 
     @Test
-    fun `pane departure stops further input but still requires positive native transition`() {
+    fun `pane departure stops further input and hands animation processing back to native loop`() {
         var choices = 0
         var transitionChecks = 0
         deliverNativeCardOrder(listOf(1, 2, 3), { if (choices == 1) NativeCardPane.Absent else NativeCardPane.Visible },

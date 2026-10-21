@@ -7,18 +7,18 @@ fun deliverNativeCardOrder(
     order: List<Int>,
     inspect: () -> NativeCardPane,
     choose: (id: Int, finalPotentialChoice: Boolean) -> Unit,
-    awaitNativeTransition: () -> Unit
+    afterDelivery: () -> Unit
 ) {
     for ((index, id) in order.take(3).withIndex()) {
         when (inspect()) {
             NativeCardPane.Visible -> choose(id, index == 2)
             NativeCardPane.Absent -> {
                 if (index == 0) throw NativeDecisionException("UnexpectedNativeCardScene")
-                awaitNativeTransition()
+                afterDelivery()
                 return
             }
             NativeCardPane.Unsupported -> throw NativeDecisionException("UnsupportedPartialCardSelectionEvidence")
         }
     }
-    awaitNativeTransition()
+    afterDelivery()
 }
