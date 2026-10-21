@@ -21,8 +21,6 @@ class ServantTracker @Inject constructor(
     private val servantQueue = mutableListOf<TeamSlot>()
     private val _deployed = mutableMapOf<FieldSlot, TeamSlot>()
     val deployed: Map<FieldSlot, TeamSlot> = _deployed
-    /** Current native order-change positions; callers must not infer a missing reserve. */
-    val reserves: List<TeamSlot> get() = servantQueue.toList()
 
     fun nextRun() {
         servantQueue.clear()

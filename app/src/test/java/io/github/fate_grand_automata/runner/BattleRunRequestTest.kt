@@ -184,16 +184,24 @@ class BattleRunRequestTest {
                 f.handler.apply(candidate, BattleRunPolicy.Automation)
             }.code)
         }
-        f.boost = 0
-        assertEquals("ForbiddenBoost", assertFailsWith<BattleRunValidationException> {
-            f.handler.apply(request, BattleRunPolicy.Automation)
-        }.code)
-        f.boost = -1
-        f.withdraw = true
-        assertEquals("ForbiddenAutoWithdraw", assertFailsWith<BattleRunValidationException> {
-            f.handler.apply(request, BattleRunPolicy.Automation)
-        }.code)
+
         assertTrue(f.writes.isEmpty())
+    }
+
+    @Test
+    fun `Smart ignores unused legacy policy and transient UI boost withdraw preferences`() {
+        for (command in listOf("invalid!", "o1")) {
+            val f = Fixture()
+            f.command = command; f.boost = 0; f.withdraw = true
+            val validated = f.handler.validate(f.request().copy(decisionMode = "smart"), BattleRunPolicy.Automation)
+            val provider = object : NativeBattleDecisionProvider by DisabledNativeBattleDecisionProvider { override val enabled = true }
+            val fixed = ScriptRunPreferences.automation(f.prefs, validated, provider).prefs
+            assertEquals(-1, fixed.boostItemSelectionMode)
+            assertFalse(fixed.withdrawEnabled)
+            assertTrue(fixed.selectedServerConfigPref.resources.isEmpty())
+        }
+        val kr = Fixture(); kr.configServer = GameServer.Kr
+        kr.handler.validate(kr.request().copy(server = GameServer.Kr, decisionMode = "smart"), BattleRunPolicy.Automation)
     }
 
     @Test
@@ -282,7 +290,7 @@ class BattleRunRequestTest {
         assertEquals("InvalidDecisionMode", assertFailsWith<BattleRunValidationException> {
             f.handler.validate(f.request().copy(decisionMode = "smart"), BattleRunPolicy.Interactive)
         }.code)
-        assertEquals("UnsupportedSmartServer", assertFailsWith<BattleRunValidationException> {
+        assertEquals("ServerMismatch", assertFailsWith<BattleRunValidationException> {
             f.handler.validate(f.request().copy(decisionMode = "smart", server = GameServer.Kr), BattleRunPolicy.Automation)
         }.code)
         assertTrue(f.writes.isEmpty())

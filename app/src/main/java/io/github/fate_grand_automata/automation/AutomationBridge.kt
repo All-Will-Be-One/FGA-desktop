@@ -10,8 +10,6 @@ import io.github.fate_grand_automata.BuildConfig
 import io.github.fate_grand_automata.runner.*
 import io.github.fate_grand_automata.scripts.enums.GameServer
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
-import io.github.fate_grand_automata.scripts.models.BoostItem
-import io.github.fate_grand_automata.scripts.enums.ScriptModeEnum
 import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
 import io.github.fga.automation.*
 import kotlinx.serialization.json.*
@@ -28,7 +26,6 @@ object AutomationBridge {
     @Volatile private var owner:String?=null
     @Volatile private var activeRunner:ScriptManager?=null
     @Volatile private var activeRequest:BattleRunRequest?=null
-    @Volatile private var activeScript:String?=null
     private var preferences:IPreferences?=null
     private var controller:AutomationController?=null
     private var dispatcher:RpcDispatcher?=null
@@ -84,7 +81,6 @@ object AutomationBridge {
                                         // Only the successfully reserved API runner emits Starting.
                                         // A Busy result must never borrow the manual runner's input guard.
                                         activeRequest=request
-                                        activeScript=commandSnapshot
                                         activeRunner=runner
                                         owner=run.runId
                                     }
@@ -95,7 +91,7 @@ object AutomationBridge {
                                     runCatching { externalPlans?.close(run.runId,exit.reason) }
                                         .onFailure { initializationFailure="External-plan journal close failed: ${it.message}" }
                                     frames?.release(run.runId)
-                                    if(owner==run.runId) { owner=null;activeRunner=null;activeRequest=null;activeScript=null }
+                                    if(owner==run.runId) { owner=null;activeRunner=null;activeRequest=null }
                                 }
                                 override fun onCleanupFailure(error:String) {
                                     controller?.uncertain(run.runId,"NativeCleanupUnconfirmed",error)
@@ -110,8 +106,8 @@ object AutomationBridge {
                                     // Observe the foreign runner's real drain; never control it.
                                     runner.onProcessRunnerIdle { callback.exit("Busy",0) }
                                 }
-                                NativeStartResult.RequiresUserConsent -> { owner=null;activeRunner=null;activeRequest=null;activeScript=null;callback.rejected("RequiresUserConsent","Accessibility or screen capture must be prepared by the user") }
-                                is NativeStartResult.Rejected -> { owner=null;activeRunner=null;activeRequest=null;activeScript=null;callback.rejected(result.code,result.message) }
+                                NativeStartResult.RequiresUserConsent -> { owner=null;activeRunner=null;activeRequest=null;callback.rejected("RequiresUserConsent","Accessibility or screen capture must be prepared by the user") }
+                                is NativeStartResult.Rejected -> { owner=null;activeRunner=null;activeRequest=null;callback.rejected(result.code,result.message) }
                             }
                         } catch(e:Exception) {
                             // A native runner may already own a thread. Never label
@@ -160,13 +156,13 @@ object AutomationBridge {
                         listOf("battle","farm","configs","start","status","pause","resume","stop","events").forEach { put(it,true) }
                         put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
                     })
-                    put("externalPlanProtocolVersion",1)
+                    put("externalPlanProtocolVersion",2)
                     put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
                     put("externalPlanLimits",buildJsonObject {
-                        put("strategyOwner","FGOAgent");put("normalizedFrameRequired","1280x720")
+                        put("strategyOwner","FGOAgent");put("frameTransformOwner","FGOAgent")
                         put("nativeTargetDialogEvidence",false);put("acceptedCardCountEvidence",false)
-                        put("maxPotentialCardChoices",3);put("automaticCardFill",false);put("maxEnemyLayoutSlots",3)
-                        put("classicPolicy",false);put("observationTtlSeconds",120)
+                        put("exactCardChoices",3);put("automaticCardFill",false);put("nativeEnemyTargetSlots",3)
+                        put("classicPolicy",false);put("observationTtlSeconds",JsonNull)
                     })
                     put("regions",JsonArray(listOf("CN","JP","NA","TW","KR").map(::JsonPrimitive)))
                     put("transport","adb-shell-content-provider");put("callerPolicy","own_uid_or_shell_2000")
@@ -226,24 +222,6 @@ object AutomationBridge {
         val id=owner ?: return
         // Observation is best effort; it must never alter a native battle decision.
         runCatching { controller?.nativeEvent(id,type,detail) }
-    }
-    /** Recheck live settings at the existing platform input boundary. UI settings
-     * can change while a run is active; they must not enable refills or a new script. */
-    fun guardInput() {
-        if(owner==null) return
-        val request=activeRequest ?: throw IllegalStateException("Automation request snapshot is unavailable")
-        if(request.decisionMode=="smart") permitExternalPlan(requireNotNull(owner))
-        val prefs=preferences ?: throw IllegalStateException("Automation preferences are unavailable")
-        val config=prefs.selectedBattleConfig
-        val limits=prefs.selectedServerConfigPref
-        if(config.id!=request.configId || config.skillCommand!=activeScript || prefs.gameServer.simple!=request.server.simple ||
-            prefs.scriptMode!=ScriptModeEnum.Battle || limits.resources.isNotEmpty() || limits.waitForAPRegen ||
-            BoostItem.of(prefs.boostItemSelectionMode) !is BoostItem.Disabled || !limits.shouldLimitRuns ||
-            limits.limitRuns !in 1..request.limits.limitRuns ||
-            limits.shouldLimitMats!=request.limits.shouldLimitMaterials || limits.limitMats!=request.limits.limitMaterials ||
-            limits.shouldLimitCEs!=request.limits.shouldLimitCEs || limits.limitCEs!=request.limits.limitCEs) {
-            throw IllegalStateException("Automation configuration or resource limits changed during the run")
-        }
     }
     private fun region(server:GameServer):String = when(server) {
         is GameServer.Jp -> "JP"

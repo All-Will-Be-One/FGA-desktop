@@ -11,7 +11,7 @@ import java.util.UUID
 @Serializable data class ExternalReady(
     val runId:String,val battleId:String,val turnId:String,val phase:String,val observationId:String,
     val sequence:Long,val context:JsonObject,val frame:JsonObject,val beforeAttackFrame:JsonObject?=null,
-    val createdAtMillis:Long,val expiresAtMillis:Long,
+    val createdAtMillis:Long,val expiresAtMillis:Long?=null,
 )
 @Serializable data class ExternalPlan(
     val runId:String,val planId:String,val battleId:String,val turnId:String,val phase:String,
@@ -80,10 +80,9 @@ class ExternalPlanProtocol(
         val turn=context["turn"]?.jsonPrimitive?.int ?: throw RpcFailure("InvalidContext","Missing turn")
         val phase=context["phase"]?.jsonPrimitive?.content ?: throw RpcFailure("InvalidContext","Missing phase")
         require(battle>0 && turn>0 && phase in setOf("skills","cards")) { "Invalid native turn context" }
-        if(phase=="cards" && parent==null) throw RpcFailure("MissingParentFrame","Cards require the fresh post-skill Attack parent")
         val sequence=old.sequence+1
         val ready=ExternalReady(runId,"$runId:b$battle","$runId:b$battle:t$turn",phase,newId(),sequence,context,frame,
-            if(phase=="cards") parent else null,now(),now()+120_000)
+            if(phase=="cards") parent else null,now())
         commit(old.copy(decisionState="ready",sequence=sequence,ready=ready))
         return ready
     }
@@ -107,13 +106,13 @@ class ExternalPlanProtocol(
             "servant_skill" -> { require(phase=="skills");integer("slot",0..2);integer("index",0..2);target();setOf("type","slot","index","target") }
             "master_skill" -> { require(phase=="skills");integer("index",0..2);target();setOf("type","index","target") }
             "order_change" -> { require(phase=="skills");integer("front",0..2);integer("reserve",0..2);setOf("type","front","reserve") }
-            "enemy_target" -> { val count=integer("enemyCount",1..3);integer("index",0 until count);setOf("type","index","enemyCount") }
+            "enemy_target" -> { integer("index",0..2);setOf("type","index","enemyCount") }
             "finish_skills" -> { require(phase=="skills");setOf("type") }
             "cards" -> {
                 require(phase=="cards")
                 val order=action["order"]?.jsonArray?.map { it.jsonPrimitive.int }
                     ?: throw RpcFailure("InvalidAction","Missing explicit card order")
-                require(order.size in 3..8 && order.distinct().size==order.size && order.all { it in 1..8 }) { "Invalid explicit card order" }
+                require(order.size==3 && order.distinct().size==3 && order.all { it in 1..8 }) { "Invalid explicit card order" }
                 setOf("type","order","initialHandEvidence")
             }
             else -> throw RpcFailure("InvalidAction","No supported external action")
@@ -123,19 +122,6 @@ class ExternalPlanProtocol(
     private fun matches(receipt:ExternalReceipt,plan:ExternalPlan)=
         receipt.runId==plan.runId && receipt.battleId==plan.battleId && receipt.turnId==plan.turnId &&
             receipt.phase==plan.phase && receipt.observationId==plan.observationId && receipt.action==plan.action
-    private fun validateHandEvidence(action:JsonObject,ready:ExternalReady) {
-        if(action["type"]?.jsonPrimitive?.content!="cards") return
-        // Trusted FGOAgent reader attestation, not a native selected-card detector.
-        val evidence=action["initialHandEvidence"] as? JsonObject
-            ?: throw RpcFailure("MissingHandEvidence","Cards require a bound FGOAgent unselected-hand attestation")
-        if(evidence.keys!=setOf("observationId","frameSha256","source","complete","unselected") ||
-            evidence["observationId"]?.jsonPrimitive?.content!=ready.observationId ||
-            ready.frame["sha256"]?.jsonPrimitive?.content?.matches(Regex("[a-f0-9]{64}"))!=true ||
-            evidence["frameSha256"]!=ready.frame["sha256"] ||
-            evidence["source"]?.jsonPrimitive?.content!="fgopy-readonly-ast" ||
-            evidence["complete"]?.jsonPrimitive?.booleanOrNull!=true || evidence["unselected"]?.jsonPrimitive?.booleanOrNull!=true)
-            throw RpcFailure("InvalidHandEvidence","Initial hand evidence is missing, ambiguous or from different pixels")
-    }
     @Synchronized fun submit(plan:ExternalPlan):ExternalReceipt {
         AutomationController.identifier(plan.planId)
         if(plan.planId.length>128) throw RpcFailure("InvalidIdentifier","planId exceeds native executor bound")
@@ -149,9 +135,8 @@ class ExternalPlanProtocol(
         validateAction(plan.phase,plan.action)
         val ready=s.ready ?: throw RpcFailure("NoReadyObservation","Native executor has no stable observation")
         if(s.decisionState!="ready" || ready.battleId!=plan.battleId || ready.turnId!=plan.turnId ||
-            ready.phase!=plan.phase || ready.observationId!=plan.observationId || now()>=ready.expiresAtMillis)
+            ready.phase!=plan.phase || ready.observationId!=plan.observationId)
             throw RpcFailure("StaleObservation","External plan is stale or its observation already has an accepted action")
-        validateHandEvidence(plan.action,ready)
         val receipt=ExternalReceipt(plan.planId,plan.runId,plan.battleId,plan.turnId,plan.phase,plan.observationId,
             plan.action,"Accepted",createdAtMillis=now(),updatedAtMillis=now())
         s=s.copy(decisionState="waiting",receipts=s.receipts+receipt)
@@ -166,11 +151,10 @@ class ExternalPlanProtocol(
         val s=session(runId);val receipt=status(runId,planId)
         if(receipt.status!="Accepted") throw RpcFailure("NonReplayablePlan","Only an unexecuted accepted plan can dispatch")
         val ready=s.ready
-        if(ready==null || ready.observationId!=receipt.observationId || now()>=ready.expiresAtMillis) {
-            update(runId,planId,"Rejected","ObservationExpiredBeforeDispatch")
-            throw RpcFailure("StaleObservation","Observation expired before first effect")
+        if(ready==null || ready.observationId!=receipt.observationId) {
+            update(runId,planId,"Rejected","ObservationReplacedBeforeDispatch")
+            throw RpcFailure("StaleObservation","Observation identity changed before dispatch")
         }
-        validateHandEvidence(receipt.action,ready)
         return update(runId,planId,"Executing",null,clearReady=true)
     }
     private fun update(runId:String,planId:String,status:String,reason:String?,clearReady:Boolean=false):ExternalReceipt {

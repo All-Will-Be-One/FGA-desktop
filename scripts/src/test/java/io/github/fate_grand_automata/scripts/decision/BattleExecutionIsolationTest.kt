@@ -68,7 +68,6 @@ class BattleExecutionIsolationTest {
             every { autoSkill.execute(any(), any()) } returns NPUsage.none
             every { provider.enabled } returns external
             every { tracker.deployed } returns mapOf(FieldSlot.A to TeamSlot.A, FieldSlot.B to TeamSlot.B, FieldSlot.C to TeamSlot.C)
-            every { tracker.reserves } returns listOf(TeamSlot.D, TeamSlot.E, TeamSlot.F)
             val hand = (1..5).map { NativeDecisionCard(it, "Arts", "Normal", "1", 0, false) }
             every { externalCards.readHand() } returns hand
             every { provider.await(any(), any(), any()) } returnsMany listOf(
@@ -76,7 +75,7 @@ class BattleExecutionIsolationTest {
                 NativeDecisionCommand("attack", NativeDecisionAction.FinishSkills),
                 NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(2, 4, 1)))
             )
-            val externalPlans = ExternalPlanBattle(api, tracker, state, caster, externalCards, provider, ExitManager())
+            val externalPlans = ExternalPlanBattle(api, state, caster, externalCards, provider, ExitManager())
             battle = Battle(api, tracker, state, config, autoSkill, caster, card, spam,
                 mockk(relaxed = true), stage, autoTarget, externalPlans)
         }
@@ -87,7 +86,7 @@ class BattleExecutionIsolationTest {
         val f = Fixture(external = true)
         f.battle.performBattle()
         verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, null) }
-        verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1), any()) }
+        verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1)) }
         verify(exactly = 0) { f.autoSkill.execute(any(), any()) }
         verify(exactly = 0) { f.spam.spamSkills() }
         verify(exactly = 0) { f.autoTarget.choose() }
@@ -102,14 +101,14 @@ class BattleExecutionIsolationTest {
         verify(exactly = 1) { f.autoSkill.execute(any(), any()) }
         verify(exactly = 1) { f.spam.spamSkills() }
         verify(exactly = 1) { f.card.clickCommandCards(any(), NPUsage.none) }
-        verify(exactly = 0) { f.externalCards.executeOrder(any(), any()) }
+        verify(exactly = 0) { f.externalCards.executeOrder(any()) }
         verify(exactly = 0) { f.provider.await(any(), any(), any()) }
     }
 
     @Test
     fun `card delivery can finish during animation without publishing another actionable turn`() {
         val f = Fixture(external = true)
-        every { f.externalCards.executeOrder(any(), any()) } answers { f.sceneVisible = false }
+        every { f.externalCards.executeOrder(any()) } answers { f.sceneVisible = false }
         f.battle.performBattle()
         assertTrue(!f.battle.isIdle())
         verify(exactly = 1) { f.provider.completed(match { it.planId == "cards" }) }
@@ -145,20 +144,20 @@ class BattleExecutionIsolationTest {
     }
 
     @Test
-    fun `absent requested recipient rejects before executing or Caster effect`() {
+    fun `unrecognized deployment does not replace explicit target or prevent native execution`() {
         val f = Fixture(external = true)
-        every { f.tracker.deployed } returns mapOf(FieldSlot.B to TeamSlot.B)
-        every { f.provider.await(any(), any(), any()) } returns
-            NativeDecisionCommand("missing-recipient", NativeDecisionAction.ServantSkill(1, 2, 1))
-        val error = assertFailsWith<IllegalArgumentException> { f.battle.performBattle() }
-        assertTrue(error.message.orEmpty().contains("UnavailableNativeFieldSlot"))
-        verify(exactly = 0) { f.provider.executing(any()) }
-        verify(exactly = 0) { f.caster.castServantSkill(any(), isNull<ServantTarget>()) }
-        verify(exactly = 0) { f.caster.castServantSkill(any(), any<ServantTarget>()) }
+        every { f.tracker.deployed } returns emptyMap()
+        every { f.provider.await(any(), any(), any()) } returnsMany listOf(
+            NativeDecisionCommand("target", NativeDecisionAction.ServantSkill(1, 2, 1)),
+            NativeDecisionCommand("attack", NativeDecisionAction.FinishSkills),
+            NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(6, 7, 8))))
+        f.battle.performBattle()
+        verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, ServantTarget.A) }
+        verify(exactly = 1) { f.externalCards.executeOrder(listOf(6, 7, 8)) }
     }
 
     @Test
-    fun `missing scene or known extra dialog after native delivery stops before next command`() {
+    fun `no additional scene or effect proof interrupts supplied native sequence`() {
         for (scene in listOf("missing", "confirmation", "cancel")) {
             val f = Fixture(external = true)
             every { f.caster.castServantSkill(Skill.Servant.B3, null) } answers {
@@ -168,12 +167,11 @@ class BattleExecutionIsolationTest {
                     "cancel" -> f.cancelVisible = true
                 }
             }
-            assertFailsWith<NativeDecisionException> { f.battle.performBattle() }
+            f.battle.performBattle()
             verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, null) }
-            verify(exactly = 1) { f.provider.await(any(), any(), any()) }
-            verify(exactly = 1) { f.provider.failed(match { it.planId == "skill" }, any()) }
-            verify(exactly = 0) { f.provider.completed(any()) }
-            verify(exactly = 0) { f.externalCards.executeOrder(any(), any()) }
+            verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1)) }
+            verify(exactly = 0) { f.provider.failed(any(), any()) }
+            verify(exactly = 3) { f.provider.completed(any()) }
         }
     }
 }

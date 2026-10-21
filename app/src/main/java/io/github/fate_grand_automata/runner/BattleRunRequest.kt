@@ -5,7 +5,6 @@ import io.github.fate_grand_automata.scripts.enums.RefillResourceEnum
 import io.github.fate_grand_automata.scripts.enums.ScriptModeEnum
 import io.github.fate_grand_automata.scripts.models.AutoSkillAction
 import io.github.fate_grand_automata.scripts.models.AutoSkillCommand
-import io.github.fate_grand_automata.scripts.models.BoostItem
 import io.github.fate_grand_automata.scripts.prefs.IBattleConfig
 import io.github.fate_grand_automata.scripts.prefs.IPerServerConfigPrefs
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
@@ -77,8 +76,6 @@ class BattleRunRequestHandler @Inject constructor(private val prefs: IPreference
         requireValid(request.decisionMode in setOf("script", "smart"), "InvalidDecisionMode", "Unknown battle decision mode")
         requireValid(policy == BattleRunPolicy.Automation || request.decisionMode == "script",
             "InvalidDecisionMode", "Interactive launches use script decisions")
-        requireValid(request.decisionMode != "smart" || request.server !is GameServer.Kr,
-            "UnsupportedSmartServer", "Smart recognition does not support KR")
 
         val config = prefs.battleConfigs.firstOrNull { it.id == request.configId }
             ?: throw BattleRunValidationException("UnknownConfig", "Battle configuration does not exist")
@@ -106,16 +103,16 @@ class BattleRunRequestHandler @Inject constructor(private val prefs: IPreference
                 "ForbiddenSaintQuartz", "Saint Quartz refills are not allowed by automation")
             requireValid(request.refills.resources.isEmpty(), "ForbiddenRefills", "Refills are not allowed by automation")
             requireValid(!request.waitForApRegen, "ForbiddenApWait", "AP regeneration waits are not allowed by automation")
-            requireValid(BoostItem.of(prefs.boostItemSelectionMode) is BoostItem.Disabled,
-                "ForbiddenBoost", "Boost items must be disabled before automation")
-            requireValid(!prefs.withdrawEnabled, "ForbiddenAutoWithdraw", "Automatic withdrawal must be disabled before automation")
-            val commands = try {
-                AutoSkillCommand.parse(skillCommand)
-            } catch (_: Exception) {
-                throw BattleRunValidationException("InvalidSkillCommand", "Battle skill command cannot be parsed")
+            // The external Smart path never executes legacy auto-skill commands.
+            if (request.decisionMode == "script") {
+                val commands = try {
+                    AutoSkillCommand.parse(skillCommand)
+                } catch (_: Exception) {
+                    throw BattleRunValidationException("InvalidSkillCommand", "Battle skill command cannot be parsed")
+                }
+                requireValid(commands.stages.flatten().flatten().none { it is AutoSkillAction.CommandSpell },
+                    "ForbiddenCommandSpell", "Command spells are not allowed by automation")
             }
-            requireValid(commands.stages.flatten().flatten().none { it is AutoSkillAction.CommandSpell },
-                "ForbiddenCommandSpell", "Command spells are not allowed by automation")
         }
         return ValidatedBattleRun(request.copy(refills = request.refills.copy(resources = request.refills.resources.toSet())),
             config, skillCommand)

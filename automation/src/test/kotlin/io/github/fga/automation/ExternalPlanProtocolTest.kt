@@ -43,12 +43,16 @@ class ExternalPlanProtocolTest {
         }
         assertNull(p.accepted("run"))
     }
-    @Test fun expiresBeforeAcceptanceOrBeforeFirstEffect() {
-        val p=protocol();val r=ready(p);clock=r.expiresAtMillis
-        assertFailsWith<RpcFailure>{p.submit(plan(r))}
-        clock=1000;p.submit(plan(r));clock=r.expiresAtMillis
-        assertFailsWith<RpcFailure>{p.executing("run","plan")}
-        assertEquals("Rejected",p.status("run","plan").status)
+    @Test fun retainedObservationDoesNotExpireWhileTheOwnedTaskStillPermitsIt() {
+        val p=protocol();val r=ready(p)
+        assertNull(r.expiresAtMillis)
+        clock += 3_600_000
+        assertEquals("Accepted",p.submit(plan(r)).status)
+        clock += 3_600_000
+        assertEquals("Executing",p.executing("run","plan").status)
+        p.completed("run","plan")
+        assertEquals("Completed",p.status("run","plan").status)
+        assertEquals("unverified",p.status("run","plan").gameEffect)
     }
     @Test fun stopOrPausePreventsDispatchOfAnAlreadyAcceptedAction() {
         val p=protocol();val r=ready(p);p.submit(plan(r));permitted=false
@@ -81,10 +85,11 @@ class ExternalPlanProtocolTest {
             assertNull(restarted.accepted("run"));assertFailsWith<RpcFailure>{restarted.open("run")}
         }
     }
-    @Test fun completedSkillCannotReuseObservationAndNewPhaseRequiresFreshParent() {
+    @Test fun completedSkillCannotReuseObservationButParentIsOptionalMetadata() {
         val p=protocol();val r=ready(p);p.submit(plan(r));p.executing("run","plan");p.completed("run","plan")
         val cards=JsonObject(context+mapOf("phase" to JsonPrimitive("cards")))
-        assertFailsWith<RpcFailure>{p.publish("run",cards,frame)}
+        val withoutParent=p.publish("run",cards,frame)
+        assertNull(withoutParent.beforeAttackFrame)
         val next=p.publish("run",cards,frame,frame)
         assertNotEquals(r.observationId,next.observationId);assertEquals(r.turnId,next.turnId)
         assertEquals(frame,next.beforeAttackFrame)
@@ -104,22 +109,37 @@ class ExternalPlanProtocolTest {
         assertEquals("Unconfirmed",p.status("run","plan").status)
         assertEquals("unverified",p.status("run","plan").gameEffect)
     }
-    @Test fun directCardsRequireExactTrustedReaderAttestationBeforeAnyEffect() {
+    @Test fun directCardsDoNotRequireHostReaderOrGameEffectAttestation() {
         val p=protocol();p.open("run")
-        val r=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame,frame)
-        val action=buildJsonObject {put("type","cards");put("order",JsonArray(listOf(1,2,3).map(::JsonPrimitive)))}
-        assertFailsWith<RpcFailure>{p.submit(plan(r,action=action))}
-        val evidence=buildJsonObject {
-            put("observationId",r.observationId);put("frameSha256","a".repeat(64));put("source","fgopy-readonly-ast");put("complete",true);put("unselected",true)
+        val r=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame)
+        val action=buildJsonObject {put("type","cards");put("order",JsonArray(listOf(6,7,8).map(::JsonPrimitive)))}
+        assertEquals("Accepted",p.submit(plan(r,action=action)).status)
+        assertEquals("Executing",p.executing("run","plan").status)
+        p.completed("run","plan")
+        assertEquals("Completed",p.status("run","plan").status)
+        assertEquals("unverified",p.status("run","plan").gameEffect)
+        val next=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame)
+        val legacy=JsonObject(action+mapOf("initialHandEvidence" to buildJsonObject {put("complete",false)}))
+        assertEquals("Accepted",p.submit(plan(next,"next",legacy)).status)
+    }
+    @Test fun explicitEnemySlotDoesNotRequireInferredLayout() {
+        for (count in listOf<JsonElement?>(null, JsonPrimitive(6), JsonNull)) {
+            val p=protocol();val r=ready(p)
+            val action=buildJsonObject {
+                put("type","enemy_target");put("index",2)
+                count?.let {put("enemyCount",it)}
+            }
+            assertEquals("Accepted",p.submit(plan(r,action=action)).status)
         }
-        for((key,value) in listOf("observationId" to JsonPrimitive("old"),"frameSha256" to JsonPrimitive("b".repeat(64)),
-            "unselected" to JsonPrimitive(false),"complete" to JsonPrimitive(false),"source" to JsonPrimitive("untrusted"))) {
-            assertFailsWith<RpcFailure>{p.submit(plan(r,action=JsonObject(action+mapOf("initialHandEvidence" to JsonObject(evidence+mapOf(key to value))))))}
+    }
+    @Test fun exactCardWireShapeRejectsTruncationDuplicatesAndInvalidIndices() {
+        val p=protocol();p.open("run")
+        val r=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame)
+        for (order in listOf(listOf(1,2),listOf(1,2,3,4),listOf(1,1,2),listOf(1,2,9))) {
+            val action=buildJsonObject {put("type","cards");put("order",JsonArray(order.map(::JsonPrimitive)))}
+            assertFailsWith<IllegalArgumentException>{p.submit(plan(r,action=action))}
         }
         assertNull(p.accepted("run"))
-        val accepted=p.submit(plan(r,action=JsonObject(action+mapOf("initialHandEvidence" to evidence))))
-        assertEquals("Accepted",accepted.status)
-        assertEquals("Executing",p.executing("run","plan").status)
     }
     @Test fun fileJournalRoundTripSyncsBeforeAcknowledgement() {
         val directory=Files.createTempDirectory("external-plan-test").toFile()

@@ -5,7 +5,6 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
 import androidx.annotation.RequiresApi
-import io.github.fate_grand_automata.automation.AutomationBridge
 import io.github.fate_grand_automata.scripts.prefs.IGesturesPreferences
 import io.github.lib_automata.GestureService
 import io.github.lib_automata.Location
@@ -153,8 +152,6 @@ class AccessibilityGestures @Inject constructor(
         isContinuation: Boolean = false,
         willContinue: Boolean = false
     ) {
-        // Recheck the native run's immutable request before every click and continued swipe.
-        AutomationBridge.guardInput()
         val accessibility = TapperService.instance
             ?: throw AccessibilityGestureException(GestureFailure.AccessibilityUnavailable)
         val gestureDesc = GestureDescription.Builder()

@@ -8,19 +8,21 @@ import java.io.FileOutputStream
 import java.io.FilterOutputStream
 import java.security.DigestOutputStream
 import java.security.MessageDigest
+import timber.log.Timber
 import java.util.UUID
 
 /** App-private, short-lived captures. Tokens are never filesystem paths or URI grants. */
-class ExternalFrameStore(private val directory:File,private val authority:String,private val now:()->Long={System.currentTimeMillis()}) {
-    private data class Entry(val runId:String,val file:File,val expiry:Long)
+class ExternalFrameStore(private val directory:File,private val authority:String) {
+    private data class Entry(val runId:String,val file:File)
     private val entries=linkedMapOf<String,Entry>()
     init {
         directory.mkdirs()
         // Restart invalidates every previous token; external actions are never resumed.
-        directory.listFiles()?.filter { it.isFile }?.forEach { check(it.delete()) { "Cannot invalidate old external capture" } }
+        directory.listFiles()?.filter { it.isFile }?.forEach {
+            if (!it.delete()) Timber.w("Could not delete old capture; previous token remains invalid: %s", it.name)
+        }
     }
     @Synchronized fun save(runId:String,pattern:Pattern):JsonObject {
-        cleanup()
         if(entries.size>=8) {
             // The synchronous receiver retains only current/parent captures, never a history.
             entries.entries.first().let { it.value.file.delete();entries.remove(it.key) }
@@ -38,7 +40,7 @@ class ExternalFrameStore(private val directory:File,private val authority:String
                 pattern.save(bounded);bounded.flush();raw.fd.sync()
             }
             check(file.length() in 24..16*1024*1024) { "Invalid capture size" }
-            entries[token]=Entry(runId,file,now()+300_000)
+            entries[token]=Entry(runId,file)
             return buildJsonObject {
                 put("uri","content://$authority/frames/$token")
                 put("sha256",digest.digest().joinToString("") { "%02x".format(it) })
@@ -48,16 +50,12 @@ class ExternalFrameStore(private val directory:File,private val authority:String
         } catch(error:Exception) { file.delete();throw error }
     }
     @Synchronized fun read(token:String):File {
-        cleanup()
         if(!token.matches(Regex("[a-f0-9-]{36}"))) throw FileNotFoundException("Unknown external capture")
-        val entry=entries[token] ?: throw FileNotFoundException("Unknown or expired external capture")
+        val entry=entries[token] ?: throw FileNotFoundException("Unknown external capture")
         if(!entry.file.isFile || entry.file.canonicalFile.parentFile!=directory.canonicalFile) throw FileNotFoundException("Capture unavailable")
         return entry.file
     }
     @Synchronized fun release(runId:String) {
         entries.filterValues { it.runId==runId }.keys.toList().forEach { token -> entries.remove(token)?.file?.delete() }
-    }
-    private fun cleanup() {
-        entries.filterValues { now()>=it.expiry }.keys.toList().forEach { token -> entries.remove(token)?.file?.delete() }
     }
 }

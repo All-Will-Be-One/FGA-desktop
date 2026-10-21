@@ -208,19 +208,19 @@ class ScriptManager @Inject constructor(
             failures += "Android gesture completion or continued pointer release is unconfirmed"
             return failures
         }
-        if (!releaseOcrService()) failures += "OCR context could not be closed"
+        if (!releaseOcrService()) Timber.w("OCR context cleanup failed after native input stopped")
         runCatching { imageLoader.clearSupportCache() }
-            .onFailure { failures += "Support cache could not be cleared: ${it.message}" }
+            .onFailure { Timber.w(it, "Support cache cleanup failed after native input stopped") }
         if (serviceDestroyed) {
             runCatching { screenshotServiceHolder.close() }
                 .onFailure { failures += "Screenshot service could not be closed: ${it.message}" }
             runCatching { imageLoader.clearImageCache() }
-                .onFailure { failures += "Image cache could not be cleared: ${it.message}" }
+                .onFailure { Timber.w(it, "Image cache cleanup failed after native input stopped") }
         }
         session.recording?.let { recording ->
             runCatching { withContext(Dispatchers.Main) { recording.close() } }
                 .onSuccess { session.recording = null }
-                .onFailure { failures += "Recording could not be closed: ${it.message}" }
+                .onFailure { Timber.w(it, "Optional recording cleanup failed after native input stopped") }
         }
         uiStateHolder.isRecording = session.recording != null
         return failures
@@ -230,7 +230,7 @@ class ScriptManager @Inject constructor(
         session.gestures = entryPoint.gestures().also { gestures ->
             gestures.observeQuiescence { retryCleanup(session) }
         }
-        check(releaseOcrService()) { "Previous OCR context could not be closed" }
+        releaseOcrService() // An old resource cleanup failure is diagnostic, as upstream.
         ocrService = entryPoint.ocrService()
     }
 
@@ -391,8 +391,8 @@ class ScriptManager @Inject constructor(
     @Synchronized
     fun releaseOcrService(): Boolean {
         val current = ocrService ?: return true
+        ocrService = null
         return runCatching { current.close() }
-            .onSuccess { ocrService = null }
             .onFailure { Timber.w(it, "Failed to release the OCR service") }
             .isSuccess
     }
@@ -779,7 +779,6 @@ class ScriptManager @Inject constructor(
                 }
             } else null
         } catch (e: Exception) {
-            if (session.listener != null) throw e
             val msg = context.getString(R.string.cannot_start_recording)
             Timber.e(e, msg)
             withContext(Dispatchers.Main) {

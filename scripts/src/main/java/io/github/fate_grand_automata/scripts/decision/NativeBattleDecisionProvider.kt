@@ -24,7 +24,7 @@ data class NativeDecisionContext(
 
 sealed class NativeDecisionAction {
     // target is an explicit native ally-dialog click, never a policy recipient hint.
-    // The external execution profile resolves no-dialog skills to null before submission.
+    // FGOAgent supplies the target intent; native Caster keeps its original direct-target semantics.
     data class ServantSkill(val slot: Int, val index: Int, val target: Int? = null) : NativeDecisionAction()
     data class MasterSkill(val index: Int, val target: Int? = null) : NativeDecisionAction()
     data class OrderChange(val front: Int, val reserve: Int) : NativeDecisionAction()

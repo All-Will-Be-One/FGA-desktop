@@ -78,7 +78,6 @@ class Battle @Inject constructor(
             battleConfig.raidTurnDelaySeconds.seconds.wait()
         }
 
-        externalPlans.verifyBeforeTurn()
         servantTracker.beginTurn()
 
         if (externalPlans.enabled) {

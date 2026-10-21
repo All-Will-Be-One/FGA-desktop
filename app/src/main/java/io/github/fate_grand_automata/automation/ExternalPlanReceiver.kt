@@ -2,7 +2,6 @@ package io.github.fate_grand_automata.automation
 
 import io.github.fate_grand_automata.scripts.decision.*
 import io.github.fga.automation.ExternalPlanProtocol
-import io.github.fga.automation.RpcFailure
 import io.github.lib_automata.Pattern
 import kotlinx.serialization.json.*
 
@@ -29,7 +28,6 @@ class ExternalPlanReceiver(
                 pending=receipt.planId
                 return NativeDecisionCommand(receipt.planId,action(receipt.action))
             }
-            if(System.currentTimeMillis()>=ready.expiresAtMillis) throw RpcFailure("ObservationExpired","No external plan before observation expiry")
             Thread.sleep(50)
         }
     }
@@ -63,7 +61,7 @@ class ExternalPlanReceiver(
                 "servant_skill" -> NativeDecisionAction.ServantSkill(n("slot"),n("index"),target())
                 "master_skill" -> NativeDecisionAction.MasterSkill(n("index"),target())
                 "order_change" -> NativeDecisionAction.OrderChange(n("front"),n("reserve"))
-                "enemy_target" -> NativeDecisionAction.EnemyTarget(n("index"),n("enemyCount"))
+                "enemy_target" -> NativeDecisionAction.EnemyTarget(n("index"))
                 "finish_skills" -> NativeDecisionAction.FinishSkills
                 "cards" -> NativeDecisionAction.Cards(value.getValue("order").jsonArray.map { it.jsonPrimitive.int })
                 else -> error("Unsupported explicit external action")

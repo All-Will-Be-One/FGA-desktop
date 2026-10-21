@@ -22,6 +22,7 @@ class NativeDecisionTurnRunnerTest {
         var targeted = false
         var expired = false
         var cancelled = false
+        var observedHand = hand()
         var captures = 0
         var failCompletion = false
         var capturedOrder: List<Int>? = null
@@ -54,7 +55,6 @@ class NativeDecisionTurnRunnerTest {
         val native = object : NativeDecisionTurnExecutor {
             override fun checkCancelled() { check(!cancelled) { "Cancelled" } }
             override fun capture(): Pattern { captures++; return mockk(relaxed = true) }
-            override fun verifyScene(context: NativeDecisionContext) { events += "verify:${context.phase}" }
             override fun executeSkill(action: NativeDecisionAction) {
                 executedActions += action
                 events += "effect:${action.javaClass.simpleName}"
@@ -62,7 +62,7 @@ class NativeDecisionTurnRunnerTest {
             }
             override fun enterCards(): List<NativeDecisionCard> {
                 events += "attack"
-                return hand(if (targeted) "Weak" else "Normal")
+                return if (targeted) observedHand.map { it.copy(affinity = "Weak") } else observedHand
             }
             override fun returnToSkills() { events += "backToSkills" }
             override fun executeCards(order: List<Int>, cards: List<NativeDecisionCard>) {
@@ -76,13 +76,13 @@ class NativeDecisionTurnRunnerTest {
     @Test
     fun `one skill produces a fresh observation before a separate attack and card plan`() {
         val f = Fixture(listOf(NativeDecisionAction.ServantSkill(0, 1), NativeDecisionAction.FinishSkills,
-            NativeDecisionAction.Cards(listOf(6, 3, 2, 1))))
+            NativeDecisionAction.Cards(listOf(6, 3, 2))))
         f.runner.run(skills, f.native)
         assertEquals(listOf(NativeDecisionPhase.Skills, NativeDecisionPhase.Skills, NativeDecisionPhase.Cards), f.contexts.map { it.phase })
         assertEquals(4, f.captures) // Three fresh readies and the immediately pre-Attack parent.
         assertTrue(f.events.indexOf("executing:plan0") < f.events.indexOf("effect:ServantSkill"))
         assertTrue(f.events.indexOf("completed:plan0") < f.events.lastIndexOf("ready:Skills"))
-        assertEquals(listOf(6, 3, 2, 1), f.capturedOrder)
+        assertEquals(listOf(6, 3, 2), f.capturedOrder)
         assertEquals("awaitingNativeTransition", f.events.last())
     }
 
@@ -108,11 +108,12 @@ class NativeDecisionTurnRunnerTest {
     }
 
     @Test
-    fun `unknown and six enemy layouts reject before inputs`() {
+    fun `explicit native enemy slot does not depend on inferred enemy count`() {
         for (count in listOf(null, 0, 6)) {
-            val f = Fixture(listOf(NativeDecisionAction.EnemyTarget(0, count)))
-            assertFailsWith<IllegalArgumentException> { f.runner.run(skills, f.native) }
-            assertFalse(f.events.any { it.startsWith("effect:") })
+            val f = Fixture(listOf(NativeDecisionAction.EnemyTarget(1, count), NativeDecisionAction.FinishSkills,
+                NativeDecisionAction.Cards(listOf(1, 2, 3))))
+            f.runner.run(skills, f.native)
+            assertTrue(f.executedActions.any { it is NativeDecisionAction.EnemyTarget && it.index == 1 })
         }
     }
 
@@ -158,12 +159,20 @@ class NativeDecisionTurnRunnerTest {
     }
 
     @Test
-    fun `partial unknown identity and illegal card fallback fail closed`() {
-        assertFailsWith<IllegalArgumentException> { validateNativeHand(hand().dropLast(1)) }
-        assertFailsWith<IllegalArgumentException> { validateNativeHand(hand().map { it.copy(servant = "unknown") }) }
-        val context = skills.copy(phase = NativeDecisionPhase.Cards, cards = hand().map { if (it.index == 1) it.copy(stunned = true) else it })
-        assertFailsWith<IllegalArgumentException> { validateNativeDecision(context, NativeDecisionAction.Cards(listOf(6, 1, 2, 3))) }
-        assertFailsWith<IllegalArgumentException> { validateNativeDecision(context, NativeDecisionAction.Cards(listOf(6, 7, 8))) }
-        assertFailsWith<IllegalArgumentException> { validateNativeDecision(context, NativeDecisionAction.Cards(listOf(2, 3, 3, 4))) }
+    fun `unknown partial stunned hand does not gate an exact external NP plan`() {
+        val f = Fixture(listOf(NativeDecisionAction.FinishSkills, NativeDecisionAction.Cards(listOf(6, 7, 8))))
+        f.observedHand = listOf(NativeDecisionCard(1, "Unknown", "Unknown", "unknown", null, true))
+        f.runner.run(skills, f.native)
+        assertEquals(listOf(6, 7, 8), f.capturedOrder)
+        assertEquals(f.observedHand, f.contexts.last().cards)
+    }
+
+    @Test
+    fun `basic explicit card shape and native slot ranges still reject invalid messages`() {
+        val context = skills.copy(phase = NativeDecisionPhase.Cards)
+        for (order in listOf(listOf(1, 1, 2), listOf(0, 2, 3), listOf(1, 2, 9), listOf(1, 2), listOf(1, 2, 3, 4))) {
+            assertFailsWith<IllegalArgumentException> { validateNativeDecision(context, NativeDecisionAction.Cards(order)) }
+        }
+        assertFailsWith<IllegalArgumentException> { validateNativeDecision(skills, NativeDecisionAction.EnemyTarget(3, 6)) }
     }
 }

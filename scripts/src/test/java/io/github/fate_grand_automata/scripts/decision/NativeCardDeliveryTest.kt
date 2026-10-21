@@ -18,21 +18,18 @@ import kotlin.test.assertFailsWith
 class NativeCardDeliveryTest {
     private class Fixture {
         val api = mockk<IFgoAutomataApi>(relaxed = true)
-        val tracker = mockk<ServantTracker>()
         val caster = mockk<Caster>(relaxed = true)
         val card = mockk<Card>()
         val hand = CommandCard.Face.list.map {
             ParsedCard(it, TeamSlot.A, FieldSlot.A, CardTypeEnum.Arts)
         }
         val expected = hand.map { NativeDecisionCard(it.card.index, "Arts", "Normal", "1", 0, false) }
-        val executor = ExternalCardExecutor(api, tracker, caster, card)
+        val executor = ExternalCardExecutor(api, caster, card)
         var handReads = 0
         init {
-            every { tracker.deployed } returns mapOf(FieldSlot.A to TeamSlot.A, FieldSlot.B to TeamSlot.B)
             every { card.readCommandCards() } answers {
                 handReads++
-                check(handReads <= 3) { "Animation must be handled by native AutoBattle, not another hand/scene probe" }
-                hand
+                error("Native delivery must not inspect hand quality or selection graphics")
             }
         }
     }
@@ -41,16 +38,30 @@ class NativeCardDeliveryTest {
     fun `explicit NP and face delivery returns to native loop without requiring a sampled animation cue`() {
         val f = Fixture()
         // The observed live order: two NPs and a face, followed by policy candidates.
-        f.executor.executeOrder(listOf(7, 6, 2, 1, 3, 4, 5), f.expected)
+        f.executor.executeOrder(listOf(7, 6, 2))
         verifyOrder {
-            f.caster.use(CommandCard.NP.list[1], closeWarning = true)
-            f.caster.use(CommandCard.NP.list[0], closeWarning = true)
+            f.caster.use(CommandCard.NP.list[1])
+            f.caster.use(CommandCard.NP.list[0])
             f.caster.use(CommandCard.Face.list[1])
         }
-        verify(exactly = 2) { f.caster.use(any<CommandCard.NP>(), any()) }
+        verify(exactly = 2) { f.caster.use(any<CommandCard.NP>()) }
         verify(exactly = 1) { f.caster.use(any<CommandCard.Face>()) }
         verify(exactly = 0) { f.card.clickCommandCards(any(), any()) }
-        assertEquals(3, f.handReads)
+        assertEquals(0, f.handReads)
+    }
+
+    @Test
+    fun `real wave2 face order continues through selection graphics using original Caster`() {
+        val f = Fixture()
+        f.executor.executeOrder(listOf(5, 3, 4))
+        verifyOrder {
+            f.caster.use(CommandCard.Face.list[4])
+            f.caster.use(CommandCard.Face.list[2])
+            f.caster.use(CommandCard.Face.list[3])
+        }
+        verify(exactly = 3) { f.caster.use(any<CommandCard.Face>()) }
+        verify(exactly = 0) { f.caster.use(any<CommandCard.NP>()) }
+        assertEquals(0, f.handReads)
     }
 
     @Test
@@ -58,9 +69,9 @@ class NativeCardDeliveryTest {
         val f = Fixture()
         every { f.caster.use(CommandCard.Face.list[0]) } throws ScriptAbortException()
         assertFailsWith<ScriptAbortException> {
-            f.executor.executeOrder(listOf(1, 2, 3, 4, 5), f.expected)
+            f.executor.executeOrder(listOf(1, 2, 3))
         }
         verify(exactly = 1) { f.caster.use(any<CommandCard.Face>()) }
-        assertEquals(1, f.handReads)
+        assertEquals(0, f.handReads)
     }
 }

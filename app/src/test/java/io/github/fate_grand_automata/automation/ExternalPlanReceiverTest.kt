@@ -52,18 +52,31 @@ class ExternalPlanReceiverTest {
             assertFailsWith<java.io.FileNotFoundException>{frames.read(token)}
         } finally {dir.deleteRecursively()}
     }
-    @Test fun captureCacheIsBoundedAndExpiryDoesNotGrantPaths() {
+    @Test fun captureCacheIsBoundedButRetainedFramesHaveNoAgeDeadline() {
         val dir=Files.createTempDirectory("fga-frame-test").toFile()
         try {
-            var clock=1L
-            val frames=ExternalFrameStore(dir,"test.automation"){clock}
+            val frames=ExternalFrameStore(dir,"test.automation")
             val first=frames.save("run",pattern()).getValue("uri").jsonPrimitive.content.substringAfterLast('/')
             repeat(12) {frames.save("run",pattern())}
             assertEquals(8,dir.listFiles()!!.size)
             assertFailsWith<java.io.FileNotFoundException>{frames.read(first)}
             val latest=frames.save("run",pattern()).getValue("uri").jsonPrimitive.content.substringAfterLast('/')
-            clock+=300_001;assertFailsWith<java.io.FileNotFoundException>{frames.read(latest)}
+            assertContentEquals(pixels(),frames.read(latest).readBytes())
+            frames.release("run")
             assertTrue(dir.listFiles()!!.isEmpty())
+        } finally {dir.deleteRecursively()}
+    }
+    @Test fun oldCaptureDeletionFailureDoesNotInvalidateNewInterfaceOrExposeOldPaths() {
+        val dir=Files.createTempDirectory("fga-old-capture-test").toFile()
+        try {
+            val stale=object:java.io.File(dir,"old.png") {override fun delete()=false}
+            stale.writeBytes(pixels())
+            val directory=object:java.io.File(dir.path) {override fun listFiles()=arrayOf<java.io.File>(stale)}
+            val frames=ExternalFrameStore(directory,"test.automation")
+            val metadata=frames.save("run",pattern())
+            val token=metadata.getValue("uri").jsonPrimitive.content.substringAfterLast('/')
+            assertContentEquals(pixels(),frames.read(token).readBytes())
+            assertFailsWith<java.io.FileNotFoundException>{frames.read("old.png")}
         } finally {dir.deleteRecursively()}
     }
     @Test fun semanticAdapterKeepsExplicitTargetsAndExactCardOrder() {
@@ -97,16 +110,22 @@ class ExternalPlanReceiverTest {
             assertEquals("ready",protocol.next("run").getValue("decisionState").jsonPrimitive.content)
         } finally {dir.deleteRecursively()}
     }
-    @Test fun cardsRequireParentFromThisExactBattleAndTurn() {
+    @Test fun cardsWithoutCurrentParentPublishFactsAndWaitForExternalPlan() {
         val dir=Files.createTempDirectory("fga-receiver-test").toFile()
         try {
             val protocol=ExternalPlanProtocol(Store(),{});protocol.open("run")
             val receiver=ExternalPlanReceiver("run",protocol,ExternalFrameStore(dir,"test.automation"),{})
             receiver.beforeAttack(NativeDecisionContext(1,1,1,1,NativeDecisionPhase.Skills),{pattern()})
-            assertFailsWith<RpcFailure> {
-                receiver.await(NativeDecisionContext(1,2,1,2,NativeDecisionPhase.Cards),{pattern()},{})
+            var checks=0
+            assertFailsWith<IllegalStateException> {
+                receiver.await(NativeDecisionContext(1,2,1,2,NativeDecisionPhase.Cards),{pattern()}) {
+                    if(++checks>=2) error("test cancellation, not a frame-quality rejection")
+                }
             }
-            assertNull(protocol.next("run")["ready"].takeUnless {it==JsonNull})
+            val ready=protocol.next("run").getValue("ready").jsonObject
+            assertEquals("cards",ready.getValue("phase").jsonPrimitive.content)
+            assertEquals(JsonNull,ready["beforeAttackFrame"] ?: JsonNull)
+            assertEquals(JsonNull,ready["expiresAtMillis"] ?: JsonNull)
         } finally {dir.deleteRecursively()}
     }
 }
