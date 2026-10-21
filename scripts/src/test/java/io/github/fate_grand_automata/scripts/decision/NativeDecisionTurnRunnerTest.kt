@@ -74,6 +74,21 @@ class NativeDecisionTurnRunnerTest {
     }
 
     @Test
+    fun `explicit observe refreshes skills and cards without input or turn advancement`() {
+        val f = Fixture(listOf(NativeDecisionAction.Observe, NativeDecisionAction.FinishSkills,
+            NativeDecisionAction.Observe, NativeDecisionAction.Cards(listOf(1, 2, 3))))
+        f.runner.run(skills, f.native)
+        assertEquals(listOf(NativeDecisionPhase.Skills, NativeDecisionPhase.Skills,
+            NativeDecisionPhase.Cards, NativeDecisionPhase.Cards), f.contexts.map { it.phase })
+        assertTrue(f.contexts.all { it.turn == 1 && it.waveTurn == 1 })
+        assertEquals(5, f.captures) // Four readies, one unchanged pre-Attack parent.
+        assertTrue(f.executedActions.isEmpty())
+        assertEquals(1, f.events.count { it == "attack" })
+        assertEquals(1, f.events.count { it == "effect:Cards" })
+        assertEquals(4, f.events.count { it.startsWith("completed:") })
+    }
+
+    @Test
     fun `one skill produces a fresh observation before a separate attack and card plan`() {
         val f = Fixture(listOf(NativeDecisionAction.ServantSkill(0, 1), NativeDecisionAction.FinishSkills,
             NativeDecisionAction.Cards(listOf(6, 3, 2))))

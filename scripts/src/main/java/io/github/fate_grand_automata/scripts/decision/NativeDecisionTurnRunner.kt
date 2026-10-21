@@ -33,6 +33,7 @@ class NativeDecisionTurnRunner(private val provider: NativeBattleDecisionProvide
                 provider.executing(command)
                 native.checkCancelled()
                 when (val action = command.action) {
+                    NativeDecisionAction.Observe -> Unit // Next await captures again; no game input or scene assertion.
                     NativeDecisionAction.FinishSkills -> {
                         provider.beforeAttack(context, native::capture)
                         context = context.copy(phase = NativeDecisionPhase.Cards, cards = native.enterCards())
@@ -81,6 +82,7 @@ fun validateNativeDecision(context: NativeDecisionContext, action: NativeDecisio
             require(context.phase == NativeDecisionPhase.Skills && action.front in 0..2 && action.reserve in 0..2)
         }
         is NativeDecisionAction.EnemyTarget -> require(action.index in 0..2) { "Unsupported native enemy slot" }
+        NativeDecisionAction.Observe -> Unit
         NativeDecisionAction.FinishSkills -> require(context.phase == NativeDecisionPhase.Skills)
         is NativeDecisionAction.Cards -> {
             require(context.phase == NativeDecisionPhase.Cards)

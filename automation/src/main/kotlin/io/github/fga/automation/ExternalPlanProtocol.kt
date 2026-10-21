@@ -107,6 +107,7 @@ class ExternalPlanProtocol(
             "master_skill" -> { require(phase=="skills");integer("index",0..2);target();setOf("type","index","target") }
             "order_change" -> { require(phase=="skills");integer("front",0..2);integer("reserve",0..2);setOf("type","front","reserve") }
             "enemy_target" -> { integer("index",0..2);setOf("type","index","enemyCount") }
+            "observe" -> setOf("type")
             "finish_skills" -> { require(phase=="skills");setOf("type") }
             "cards" -> {
                 require(phase=="cards")

@@ -29,6 +29,8 @@ sealed class NativeDecisionAction {
     data class MasterSkill(val index: Int, val target: Int? = null) : NativeDecisionAction()
     data class OrderChange(val front: Int, val reserve: Int) : NativeDecisionAction()
     data class EnemyTarget(val index: Int, val enemyCount: Int? = null) : NativeDecisionAction()
+    /** Explicit external request for another frame, with no game input. */
+    data object Observe : NativeDecisionAction()
     data object FinishSkills : NativeDecisionAction()
     data class Cards(val order: List<Int>) : NativeDecisionAction()
 }
