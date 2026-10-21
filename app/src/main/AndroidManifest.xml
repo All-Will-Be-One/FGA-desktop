@@ -77,6 +77,11 @@
         </activity>
 
         <receiver android:name=".runner.ScriptRunnerNotification$NotificationReceiver" />
+        <provider
+            android:name=".automation.AutomationProvider"
+            android:authorities="${applicationId}.automation"
+            android:exported="true"
+            android:grantUriPermissions="false" />
     </application>
 
 </manifest>

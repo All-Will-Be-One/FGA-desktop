@@ -5,24 +5,28 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
 import androidx.annotation.RequiresApi
+import io.github.fate_grand_automata.automation.AutomationBridge
 import io.github.fate_grand_automata.scripts.prefs.IGesturesPreferences
 import io.github.lib_automata.GestureService
 import io.github.lib_automata.Location
 import io.github.lib_automata.Waiter
+import io.github.lib_automata.dagger.ScriptScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.suspendCancellableCoroutine
 import timber.log.Timber
 import javax.inject.Inject
-import kotlin.coroutines.resume
 import kotlin.math.*
 
 /**
  * Class to perform gestures using Android's [AccessibilityService].
  */
+@ScriptScope
 class AccessibilityGestures @Inject constructor(
     private val gesturePrefs: IGesturesPreferences,
     private val wait: Waiter
 ) : GestureService {
+    private val drain = GestureDrainTracker()
+    val isInputQuiescent: Boolean get() = drain.isQuiescent()
+    fun observeQuiescence(listener: (() -> Unit)?) = drain.observeQuiescence(listener)
     fun Path.moveTo(location: Location) = apply {
         moveTo(location.x.toFloat(), location.y.toFloat())
     }
@@ -79,7 +83,7 @@ class AccessibilityGestures @Inject constructor(
             200L,
             true
         ).also {
-            performGesture(it)
+            performGesture(it, willContinue = true)
         }
 
         while (distanceLeft > 0) {
@@ -99,7 +103,7 @@ class AccessibilityGestures @Inject constructor(
                 swipeDuration,
                 true
             ).also {
-                performGesture(it)
+                performGesture(it, isContinuation = true, willContinue = true)
             }
 
             from = to
@@ -114,7 +118,7 @@ class AccessibilityGestures @Inject constructor(
             400L,
             false
         ).also {
-            performGesture(it)
+            performGesture(it, isContinuation = true)
         }
     }
 
@@ -144,23 +148,28 @@ class AccessibilityGestures @Inject constructor(
         wait(gesturePrefs.clickWaitTime)
     }
 
-    private suspend fun performGesture(StrokeDesc: GestureDescription.StrokeDescription): Boolean = suspendCancellableCoroutine {
+    private suspend fun performGesture(
+        stroke: GestureDescription.StrokeDescription,
+        isContinuation: Boolean = false,
+        willContinue: Boolean = false
+    ) {
+        // Recheck the native run's immutable request before every click and continued swipe.
+        AutomationBridge.guardInput()
+        val accessibility = TapperService.instance
+            ?: throw AccessibilityGestureException(GestureFailure.AccessibilityUnavailable)
         val gestureDesc = GestureDescription.Builder()
-            .addStroke(StrokeDesc)
+            .addStroke(stroke)
             .build()
 
-        val callback = object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                it.resume(true)
-            }
+        awaitGestureCompletion(stroke.startTime + stroke.duration + 5_000L, drain, isContinuation, willContinue) { completed, cancelled ->
+            val callback = object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) = completed()
 
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                it.resume(false)
+                override fun onCancelled(gestureDescription: GestureDescription?) = cancelled()
             }
+            accessibility.dispatchGesture(gestureDesc, callback, null)
         }
-
-        TapperService.instance?.dispatchGesture(gestureDesc, callback, null)
     }
 
-    override fun close() {}
+    override fun close() { check(isInputQuiescent) { "Accessibility input quiescence is unconfirmed" } }
 }

@@ -11,7 +11,6 @@ import io.github.fate_grand_automata.prefs.core.PrefsCore
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
 import io.github.fate_grand_automata.scripts.prefs.wantsMediaProjectionToken
 import io.github.fate_grand_automata.util.DisplayHelper
-import io.github.fate_grand_automata.util.ImageLoader
 import io.github.fate_grand_automata.util.ScreenOffReceiver
 import io.github.fate_grand_automata.util.ScriptMessages
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +27,6 @@ class ScriptRunnerServiceController @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val scriptManager: ScriptManager,
     private val screenshotServiceHolder: ScreenshotServiceHolder,
-    private val imageLoader: ImageLoader,
     private val overlay: ScriptRunnerOverlay,
     private val prefs: IPreferences,
     private val prefsCore: PrefsCore,
@@ -42,13 +40,14 @@ class ScriptRunnerServiceController @Inject constructor(
 
     fun onDestroy() {
         Timber.i("Script runner service destroyed")
+        io.github.fate_grand_automata.automation.AutomationBridge.detach(scriptManager)
 
-        scriptManager.stopScript()
-        // onScriptExit runs on `scope`, which is cancelled below, so free the OCR engine here
-        scriptManager.releaseOcrService()
-        screenshotServiceHolder.close()
+        // Process-wide reservation is retained until the old native thread and
+        // gestures actually drain, even when this service scope is cancelled.
+        scriptManager.onServiceDestroyed()
+        // Screenshot buffers are also closed after native thread/input drain.
 
-        imageLoader.clearImageCache()
+        // Cached patterns are closed by ScriptManager after the old script thread exits.
 
         overlay.hide()
         scope.cancel()

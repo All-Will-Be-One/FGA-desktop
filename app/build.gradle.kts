@@ -94,11 +94,16 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.fate_grand_automata"
+        // Distinct installation and storage: never overwrite the official app.
+        applicationId = "io.github.fate_grand_automata.automation"
         minSdk = 24
         targetSdk = 36
         versionCode = System.getenv("FGA_VERSION_CODE")?.toInt() ?: 1
         versionName = System.getenv("FGA_VERSION_NAME") ?: System.getenv("FGA_VERSION_CODE") ?: "0.1.0"
+        val sourceRevision = providers.exec {
+            commandLine("git", "describe", "--always", "--dirty", "--abbrev=40")
+        }.standardOutput.asText.get().trim()
+        buildConfigField("String", "AUTOMATION_SOURCE_REVISION", "\"$sourceRevision\"")
     }
 
     signingConfigs {
@@ -170,6 +175,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":automation"))
     implementation(project(":libautomata"))
     implementation(project(":scripts"))
     implementation(project(":prefs"))

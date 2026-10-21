@@ -40,12 +40,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.fate_grand_automata.R
+import io.github.fate_grand_automata.runner.BattleRefills
+import io.github.fate_grand_automata.runner.BattleRunLimits
+import io.github.fate_grand_automata.runner.BattleRunRequest
+import io.github.fate_grand_automata.runner.BattleRunRequestHandler
 import io.github.fate_grand_automata.scripts.enums.GameServer
 import io.github.fate_grand_automata.scripts.enums.RefillResourceEnum
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
 import io.github.fate_grand_automata.ui.Stepper
 import io.github.fate_grand_automata.ui.scrollbar
 import io.github.fate_grand_automata.util.stringRes
+import timber.log.Timber
 
 @Composable
 fun battleLauncher(
@@ -123,31 +128,26 @@ fun battleLauncher(
     var waitApRegen by remember { mutableStateOf(perServerConfigPref.waitForAPRegen) }
 
     var resetAllButton by remember { mutableStateOf(false) }
+    var submitted by remember { mutableStateOf(false) }
+
+    val requestHandler = remember(prefs) { BattleRunRequestHandler(prefs) }
+    val launchServer = remember(prefs) { prefs.gameServer }
+    fun request() = BattleRunRequest(
+        configId = configs[selectedConfigIndex].id,
+        server = launchServer,
+        limits = BattleRunLimits(shouldLimitRuns, limitRuns, shouldLimitMats, limitMats, shouldLimitCEs, limitCEs),
+        refills = BattleRefills(refillResources, copperApple, blueApple, silverApple, goldApple, rainbowApple),
+        waitForApRegen = waitApRegen
+    )
 
     DisposableEffect(Unit) {
         onDispose {
-            perServerConfigPref.shouldLimitRuns = shouldLimitRuns
-            perServerConfigPref.limitRuns = limitRuns
-            perServerConfigPref.shouldLimitMats = shouldLimitMats
-            perServerConfigPref.limitMats = limitMats
-            perServerConfigPref.shouldLimitCEs = shouldLimitCEs
-            perServerConfigPref.limitCEs = limitCEs
-            perServerConfigPref.copperApple = copperApple
-            perServerConfigPref.blueApple = blueApple
-            perServerConfigPref.silverApple = silverApple
-            perServerConfigPref.goldApple = goldApple
-            perServerConfigPref.rainbowApple = rainbowApple
-            perServerConfigPref.waitForAPRegen = waitApRegen
-            if (refillResources.isNotEmpty()) {
-                perServerConfigPref.selectedApple = refillResources.first()
+            // A submitted request is applied by the response handler. Disposal must not reset
+            // its run counter again if the coroutine resumes before the dialog is removed.
+            if (!submitted && selectedConfigIndex in configs.indices) {
+                runCatching { requestHandler.apply(request()) }
+                    .onFailure { Timber.w(it, "Battle launcher settings could not be saved") }
             }
-            perServerConfigPref.updateResources(refillResources)
-
-            if (selectedConfigIndex > -1) {
-                prefs.selectedBattleConfig = configs[selectedConfigIndex]
-            }
-
-            prefs.resetCompletedRuns()
         }
     }
 
@@ -381,9 +381,10 @@ fun battleLauncher(
     }
 
     return ScriptLauncherResponseBuilder(
-        canBuild = { selectedConfigIndex != -1 },
+        canBuild = { selectedConfigIndex in configs.indices },
         build = {
-            ScriptLauncherResponse.Battle
+            submitted = true
+            ScriptLauncherResponse.Battle(request())
         }
     )
 }

@@ -4,6 +4,7 @@ import io.github.lib_automata.EntryPoint
 
 sealed class ScriptState {
     object Stopped : ScriptState()
+    object Starting : ScriptState()
     class Started(
         val entryPoint: EntryPoint,
         val recording: AutoCloseable?,

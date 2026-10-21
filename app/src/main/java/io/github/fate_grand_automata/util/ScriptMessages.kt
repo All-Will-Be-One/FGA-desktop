@@ -41,7 +41,7 @@ class ScriptMessages @Inject constructor(
     fun notify(message: String) = notification.message(message)
 
     override fun log(item: ScriptLog) =
-        when (item) {
+        traceNative("native_log", item) { when (item) {
             ScriptLog.DefaultSupportBounds -> {
                 Timber.d("Default Region being returned")
             }
@@ -99,8 +99,10 @@ class ScriptMessages @Inject constructor(
             }
         }
 
+        }
+
     override fun notify(action: ScriptNotify) =
-        when (action) {
+        traceNative("native_notify", action) { when (action) {
             ScriptNotify.CEDropped -> notify(context.getString(R.string.ce_dropped))
             ScriptNotify.CEGet -> notify(context.getString(R.string.ce_get))
             is ScriptNotify.FailedToDetermineCards -> {
@@ -144,6 +146,13 @@ class ScriptMessages @Inject constructor(
                 )
             }
         }
+
+        }
+
+    private inline fun <T> traceNative(type: String, item: Any, action: () -> T): T {
+        io.github.fate_grand_automata.automation.AutomationBridge.observe(type, item.toString())
+        return action()
+    }
 
     private fun makeRefillAndRunsMessage(
         timesRan: Int,

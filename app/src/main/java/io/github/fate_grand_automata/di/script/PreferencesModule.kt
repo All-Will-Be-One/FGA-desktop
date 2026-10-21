@@ -8,7 +8,7 @@ import io.github.fate_grand_automata.scripts.models.CardPriorityPerWave
 import io.github.fate_grand_automata.scripts.models.ServantPriorityPerWave
 import io.github.fate_grand_automata.scripts.models.SpamConfigPerTeamSlot
 import io.github.fate_grand_automata.scripts.prefs.IBattleConfig
-import io.github.fate_grand_automata.scripts.prefs.IPreferences
+import io.github.fate_grand_automata.runner.ScriptRunPreferences
 import io.github.fate_grand_automata.scripts.prefs.ISupportPreferences
 import io.github.fate_grand_automata.scripts.prefs.ISupportPreferencesCommon
 import io.github.lib_automata.dagger.ScriptScope
@@ -18,8 +18,8 @@ import io.github.lib_automata.dagger.ScriptScope
 class PreferencesModule {
     @ScriptScope
     @Provides
-    fun provideBattleConfig(prefs: IPreferences): IBattleConfig =
-        prefs.selectedBattleConfig
+    fun provideBattleConfig(preferences: ScriptRunPreferences): IBattleConfig =
+        preferences.prefs.selectedBattleConfig
 
     @ScriptScope
     @Provides
@@ -28,8 +28,8 @@ class PreferencesModule {
 
     @ScriptScope
     @Provides
-    fun provideCommonSupportPrefs(prefs: IPreferences): ISupportPreferencesCommon =
-        prefs.support
+    fun provideCommonSupportPrefs(preferences: ScriptRunPreferences): ISupportPreferencesCommon =
+        preferences.prefs.support
 
     @ScriptScope
     @Provides

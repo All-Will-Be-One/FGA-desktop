@@ -48,6 +48,7 @@ class ScriptLauncherResponseHandler @Inject constructor(
             }
 
             is ScriptLauncherResponse.Battle -> {
+                BattleRunRequestHandler(prefs).apply(resp.request)
                 ScriptModeEnum.Battle
             }
 

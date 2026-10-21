@@ -168,9 +168,7 @@ class ScriptRunnerOverlay @Inject constructor(
             }
 
             ScriptRunnerUIAction.Stop -> {
-                if (scriptManager.scriptState is ScriptState.Started) {
-                    scriptManager.stopScript()
-                }
+                scriptManager.stopScript()
             }
 
             is ScriptRunnerUIAction.Status -> {
