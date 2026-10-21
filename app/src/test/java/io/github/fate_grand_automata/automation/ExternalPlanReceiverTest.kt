@@ -115,7 +115,6 @@ class ExternalPlanReceiverTest {
         try {
             val protocol=ExternalPlanProtocol(Store(),{});protocol.open("run")
             val receiver=ExternalPlanReceiver("run",protocol,ExternalFrameStore(dir,"test.automation"),{})
-            receiver.beforeAttack(NativeDecisionContext(1,1,1,1,NativeDecisionPhase.Skills),{pattern()})
             var checks=0
             assertFailsWith<IllegalStateException> {
                 receiver.await(NativeDecisionContext(1,2,1,2,NativeDecisionPhase.Cards),{pattern()}) {

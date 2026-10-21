@@ -29,8 +29,9 @@ sealed class NativeDecisionAction {
     data class MasterSkill(val index: Int, val target: Int? = null) : NativeDecisionAction()
     data class OrderChange(val front: Int, val reserve: Int) : NativeDecisionAction()
     data class EnemyTarget(val index: Int, val enemyCount: Int? = null) : NativeDecisionAction()
+    data class Skills(val actions: List<NativeDecisionAction>, val delayMillis: Long = 1500) : NativeDecisionAction()
     data object FinishSkills : NativeDecisionAction()
-    data class Cards(val order: List<Int>) : NativeDecisionAction()
+    data class Cards(val order: List<Int>, val target: Int? = null) : NativeDecisionAction()
 }
 
 data class NativeDecisionCommand(val planId: String, val action: NativeDecisionAction)
@@ -41,8 +42,6 @@ interface NativeBattleDecisionProvider {
     fun executing(command: NativeDecisionCommand)
     fun completed(command: NativeDecisionCommand)
     fun failed(command: NativeDecisionCommand, error: String)
-    /** Fresh post-skill parent for the immediately following Attack transition only. */
-    fun beforeAttack(context: NativeDecisionContext, capture: () -> Pattern) {}
     /** Dispatch completed; a new turn or result still has to be observed by native AutoBattle. */
     fun finishedTurn(context: NativeDecisionContext)
 }

@@ -94,7 +94,7 @@ class ExternalPlanProtocol(
             put("receipt",s.receipts.lastOrNull()?.let {Json.encodeToJsonElement(it)} ?: JsonNull)
         }
     }
-    private fun validateAction(phase:String,action:JsonObject) {
+    private fun validateAction(phase:String,action:JsonObject,nested:Boolean=false) {
         fun integer(key:String,range:IntRange):Int {
             val value=action[key]?.jsonPrimitive?.intOrNull ?: throw RpcFailure("InvalidAction","Missing integer $key")
             if(value !in range) throw RpcFailure("InvalidAction","Out of range $key")
@@ -102,18 +102,31 @@ class ExternalPlanProtocol(
         }
         fun target() { if(action["target"]!=null && action["target"]!=JsonNull) integer("target",1..3) }
         val type=action["type"]?.jsonPrimitive?.content ?: throw RpcFailure("InvalidAction","Missing action type")
+        if(!nested && type !in setOf("skills","cards")) throw RpcFailure("InvalidAction","Expected a complete phase plan")
         val keys=when(type) {
             "servant_skill" -> { require(phase=="skills");integer("slot",0..2);integer("index",0..2);target();setOf("type","slot","index","target") }
             "master_skill" -> { require(phase=="skills");integer("index",0..2);target();setOf("type","index","target") }
             "order_change" -> { require(phase=="skills");integer("front",0..2);integer("reserve",0..2);setOf("type","front","reserve") }
             "enemy_target" -> { integer("index",0..2);setOf("type","index","enemyCount") }
+            "skills" -> {
+                require(phase=="skills")
+                val actions=action["actions"]?.jsonArray ?: throw RpcFailure("InvalidAction","Missing skill batch")
+                actions.forEach {
+                    val skill=it.jsonObject
+                    require(skill["type"]?.jsonPrimitive?.content in setOf("servant_skill","master_skill","order_change"))
+                    validateAction(phase,skill,nested=true)
+                }
+                if(action["delayMillis"]!=null) integer("delayMillis",0..10_000)
+                setOf("type","actions","delayMillis")
+            }
             "finish_skills" -> { require(phase=="skills");setOf("type") }
             "cards" -> {
                 require(phase=="cards")
                 val order=action["order"]?.jsonArray?.map { it.jsonPrimitive.int }
                     ?: throw RpcFailure("InvalidAction","Missing explicit card order")
                 require(order.size==3 && order.distinct().size==3 && order.all { it in 1..8 }) { "Invalid explicit card order" }
-                setOf("type","order","initialHandEvidence")
+                if(action["target"]!=null && action["target"]!=JsonNull) integer("target",0..2)
+                setOf("type","order","target","initialHandEvidence")
             }
             else -> throw RpcFailure("InvalidAction","No supported external action")
         }

@@ -2,7 +2,7 @@ package io.github.fate_grand_automata.scripts.decision
 
 import io.github.fate_grand_automata.scripts.IFgoAutomataApi
 import io.github.fate_grand_automata.scripts.models.CommandCard
-import io.github.fate_grand_automata.scripts.modules.Card
+import io.github.fate_grand_automata.scripts.models.ParsedCard
 import io.github.fate_grand_automata.scripts.modules.Caster
 import io.github.lib_automata.dagger.ScriptScope
 import javax.inject.Inject
@@ -12,10 +12,9 @@ import kotlin.time.Duration.Companion.seconds
 @ScriptScope
 class ExternalCardExecutor @Inject constructor(
     api: IFgoAutomataApi,
-    private val caster: Caster,
-    private val card: Card
+    private val caster: Caster
 ) : IFgoAutomataApi by api {
-    fun readHand(): List<NativeDecisionCard> = card.readCommandCards().map {
+    fun handFacts(cards: List<ParsedCard>): List<NativeDecisionCard> = cards.map {
         NativeDecisionCard(it.card.index, it.type.name, it.affinity.name,
             if (it.servant.position in 1..6) it.servant.position.toString() else "unknown",
             it.fieldSlot?.position?.minus(1), it.isStunned)

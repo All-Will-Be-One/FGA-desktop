@@ -5,6 +5,7 @@ import io.github.fate_grand_automata.scripts.models.AutoSkillAction
 import io.github.fate_grand_automata.scripts.models.EnemyTarget
 import io.github.fate_grand_automata.scripts.models.FieldSlot
 import io.github.fate_grand_automata.scripts.models.OrderChangeMember
+import io.github.fate_grand_automata.scripts.models.ParsedCard
 import io.github.fate_grand_automata.scripts.models.Skill
 import io.github.fate_grand_automata.scripts.models.skills
 import io.github.fate_grand_automata.scripts.models.battle.BattleState
@@ -12,11 +13,8 @@ import io.github.fate_grand_automata.scripts.modules.Caster
 import io.github.lib_automata.ExitManager
 import io.github.lib_automata.dagger.ScriptScope
 import javax.inject.Inject
-
-/** The same Back input used by upstream Battle; no extra scene/effect assertion. */
-internal fun IFgoAutomataApi.returnToExternalSkills() {
-    locations.attack.backClick.click()
-}
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /** Adapts external plans to upstream transactions; it contains no battle policy. */
 @ScriptScope
@@ -33,7 +31,7 @@ class ExternalPlanBattle @Inject constructor(
     private var externalBattle = -1
     private var externalTurn = 0
 
-    fun executeTurn(clickAttack: () -> Unit) {
+    fun executeTurn(clickAttack: () -> List<ParsedCard>) {
         if (externalBattle != state.runs) {
             externalBattle = state.runs
             externalTurn = 0
@@ -66,11 +64,17 @@ class ExternalPlanBattle @Inject constructor(
                 // Its return is delivery completion, never proof of the game effect.
             }
             override fun enterCards(): List<NativeDecisionCard> {
-                clickAttack()
-                return cardExecutor.readHand()
+                return cardExecutor.handFacts(clickAttack())
             }
-            override fun returnToSkills() {
-                this@ExternalPlanBattle.returnToExternalSkills()
+            override fun delay(milliseconds: Long) { milliseconds.milliseconds.wait() }
+            override fun executeCardTarget(index: Int) {
+                val target = EnemyTarget.list[index]
+                // Caster.selectEnemyTarget also dismisses an info window. That
+                // dismissal overlaps a face card here; use its same header
+                // coordinate and wait without that unrelated trailing input.
+                locations.battle.locate(target).click()
+                0.5.seconds.wait()
+                state.chosenTarget = target
             }
             override fun executeCards(order: List<Int>, cards: List<NativeDecisionCard>) {
                 cardExecutor.executeOrder(order)

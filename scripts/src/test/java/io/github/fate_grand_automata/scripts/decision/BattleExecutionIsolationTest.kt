@@ -69,10 +69,9 @@ class BattleExecutionIsolationTest {
             every { provider.enabled } returns external
             every { tracker.deployed } returns mapOf(FieldSlot.A to TeamSlot.A, FieldSlot.B to TeamSlot.B, FieldSlot.C to TeamSlot.C)
             val hand = (1..5).map { NativeDecisionCard(it, "Arts", "Normal", "1", 0, false) }
-            every { externalCards.readHand() } returns hand
+            every { externalCards.handFacts(any()) } returns hand
             every { provider.await(any(), any(), any()) } returnsMany listOf(
-                NativeDecisionCommand("skill", NativeDecisionAction.ServantSkill(1, 2)),
-                NativeDecisionCommand("attack", NativeDecisionAction.FinishSkills),
+                NativeDecisionCommand("skills", NativeDecisionAction.Skills(listOf(NativeDecisionAction.ServantSkill(1, 2)))),
                 NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(2, 4, 1)))
             )
             val externalPlans = ExternalPlanBattle(api, state, caster, externalCards, provider, ExitManager())
@@ -113,7 +112,7 @@ class BattleExecutionIsolationTest {
         assertTrue(!f.battle.isIdle())
         verify(exactly = 1) { f.provider.completed(match { it.planId == "cards" }) }
         verify(exactly = 1) { f.provider.finishedTurn(any()) }
-        verify(exactly = 3) { f.provider.await(any(), any(), any()) }
+        verify(exactly = 2) { f.provider.await(any(), any(), any()) }
         // AutoBattle's existing screen loop cannot enter performBattle again
         // until its normal native BattleScreen detector sees an idle scene.
         f.sceneVisible = true
@@ -124,13 +123,9 @@ class BattleExecutionIsolationTest {
     fun `explicit external target and order change reach the original Caster unchanged`() {
         val f = Fixture(external = true)
         every { f.provider.await(any(), any(), any()) } returnsMany listOf(
-            NativeDecisionCommand("servant", NativeDecisionAction.ServantSkill(1, 2, 3)),
-            NativeDecisionCommand("master", NativeDecisionAction.MasterSkill(0, 2)),
-            NativeDecisionCommand("no-target", NativeDecisionAction.MasterSkill(1)),
-            NativeDecisionCommand("swap", NativeDecisionAction.OrderChange(2, 1)),
-            NativeDecisionCommand("attack", NativeDecisionAction.FinishSkills),
-            NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(1, 2, 3)))
-        )
+                NativeDecisionCommand("skills", NativeDecisionAction.Skills(listOf(NativeDecisionAction.ServantSkill(1, 2, 3), NativeDecisionAction.MasterSkill(0, 2), NativeDecisionAction.MasterSkill(1), NativeDecisionAction.OrderChange(2, 1)))),
+                NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(1, 2, 3)))
+            )
         f.battle.performBattle()
         verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, ServantTarget.C) }
         verify(exactly = 1) { f.caster.castMasterSkill(Skill.Master.A, ServantTarget.B) }
@@ -148,9 +143,9 @@ class BattleExecutionIsolationTest {
         val f = Fixture(external = true)
         every { f.tracker.deployed } returns emptyMap()
         every { f.provider.await(any(), any(), any()) } returnsMany listOf(
-            NativeDecisionCommand("target", NativeDecisionAction.ServantSkill(1, 2, 1)),
-            NativeDecisionCommand("attack", NativeDecisionAction.FinishSkills),
-            NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(6, 7, 8))))
+                NativeDecisionCommand("skills", NativeDecisionAction.Skills(listOf(NativeDecisionAction.ServantSkill(1, 2, 1)))),
+                NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(6, 7, 8)))
+            )
         f.battle.performBattle()
         verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, ServantTarget.A) }
         verify(exactly = 1) { f.externalCards.executeOrder(listOf(6, 7, 8)) }
@@ -171,7 +166,21 @@ class BattleExecutionIsolationTest {
             verify(exactly = 1) { f.caster.castServantSkill(Skill.Servant.B3, null) }
             verify(exactly = 1) { f.externalCards.executeOrder(listOf(2, 4, 1)) }
             verify(exactly = 0) { f.provider.failed(any(), any()) }
-            verify(exactly = 3) { f.provider.completed(any()) }
+            verify(exactly = 2) { f.provider.completed(any()) }
         }
     }
+    @Test
+    fun `card target uses only upstream header without dismissal or repeated attack`() {
+        val f = Fixture(external = true)
+        every { f.provider.await(any(), any(), any()) } returnsMany listOf(
+            NativeDecisionCommand("skills", NativeDecisionAction.Skills(emptyList())),
+            NativeDecisionCommand("cards", NativeDecisionAction.Cards(listOf(5, 3, 4), 1))
+        )
+        f.battle.performBattle()
+        verify(exactly = 0) { f.caster.selectEnemyTarget(any()) }
+        verify(exactly = 1) { f.externalCards.executeOrder(listOf(5, 3, 4)) }
+        verify(exactly = 1) { f.externalCards.handFacts(any()) }
+        verify(exactly = 2) { f.provider.await(any(), any(), any()) }
+    }
+
 }

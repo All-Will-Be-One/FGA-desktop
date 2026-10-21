@@ -11,15 +11,11 @@ class ExternalPlanReceiver(
     private val requireOwner:()->Unit,
 ) : NativeBattleDecisionProvider {
     override val enabled=true
-    private var beforeAttack:JsonObject?=null
-    private var parentTurn:Pair<Int,Int>?=null
     private var pending:String?=null
     private fun capture(capture:()->Pattern)=capture().use { frames.save(runId,it) }
     override fun await(context:NativeDecisionContext,capture:()->Pattern,checkCancelled:()->Unit):NativeDecisionCommand {
         requireOwner();checkCancelled()
-        if(context.phase==NativeDecisionPhase.Skills) { beforeAttack=null;parentTurn=null }
-        val ready=protocol.publish(runId,contextJson(context),capture(capture),
-            if(context.phase==NativeDecisionPhase.Cards && parentTurn==(context.battle to context.turn)) beforeAttack else null)
+        val ready=protocol.publish(runId,contextJson(context),capture(capture))
         while(true) {
             checkCancelled();requireOwner()
             val receipt=protocol.accepted(runId)
@@ -37,12 +33,7 @@ class ExternalPlanReceiver(
     }
     override fun completed(command:NativeDecisionCommand) { protocol.completed(runId,command.planId);pending=null }
     override fun failed(command:NativeDecisionCommand,error:String) { protocol.failed(runId,command.planId,error);pending=null }
-    override fun beforeAttack(context:NativeDecisionContext,capture:()->Pattern) {
-        requireOwner();beforeAttack=capture(capture);parentTurn=context.battle to context.turn
-    }
-    override fun finishedTurn(context:NativeDecisionContext) {
-        beforeAttack=null;parentTurn=null;protocol.transition(runId)
-    }
+    override fun finishedTurn(context:NativeDecisionContext) { protocol.transition(runId) }
     companion object {
         fun contextJson(context:NativeDecisionContext)=buildJsonObject {
             put("battle",context.battle);put("turn",context.turn);put("wave",context.wave);put("waveTurn",context.waveTurn)
@@ -62,8 +53,10 @@ class ExternalPlanReceiver(
                 "master_skill" -> NativeDecisionAction.MasterSkill(n("index"),target())
                 "order_change" -> NativeDecisionAction.OrderChange(n("front"),n("reserve"))
                 "enemy_target" -> NativeDecisionAction.EnemyTarget(n("index"))
+                "skills" -> NativeDecisionAction.Skills(value.getValue("actions").jsonArray.map { action(it.jsonObject) },
+                    value["delayMillis"]?.jsonPrimitive?.long ?: 1500)
                 "finish_skills" -> NativeDecisionAction.FinishSkills
-                "cards" -> NativeDecisionAction.Cards(value.getValue("order").jsonArray.map { it.jsonPrimitive.int })
+                "cards" -> NativeDecisionAction.Cards(value.getValue("order").jsonArray.map { it.jsonPrimitive.int }, target())
                 else -> error("Unsupported explicit external action")
             }
         }

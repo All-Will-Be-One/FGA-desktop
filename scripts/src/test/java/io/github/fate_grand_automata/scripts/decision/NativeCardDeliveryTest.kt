@@ -24,7 +24,7 @@ class NativeCardDeliveryTest {
             ParsedCard(it, TeamSlot.A, FieldSlot.A, CardTypeEnum.Arts)
         }
         val expected = hand.map { NativeDecisionCard(it.card.index, "Arts", "Normal", "1", 0, false) }
-        val executor = ExternalCardExecutor(api, caster, card)
+        val executor = ExternalCardExecutor(api, caster)
         var handReads = 0
         init {
             every { card.readCommandCards() } answers {

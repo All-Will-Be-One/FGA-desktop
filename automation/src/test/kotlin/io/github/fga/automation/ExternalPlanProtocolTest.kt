@@ -17,7 +17,7 @@ class ExternalPlanProtocolTest {
     private val context=buildJsonObject { put("battle",1);put("turn",1);put("wave",1);put("waveTurn",1);put("phase","skills") }
     private val frame=buildJsonObject { put("uri","content://test.automation/frames/token");put("width",1280);put("height",720);put("sha256","a".repeat(64)) }
     private fun ready(p:ExternalPlanProtocol)=p.apply {open("run")}.publish("run",context,frame)
-    private fun plan(r:ExternalReady,id:String="plan",action:JsonObject=buildJsonObject { put("type","finish_skills") })=
+    private fun plan(r:ExternalReady,id:String="plan",action:JsonObject=buildJsonObject { put("type","skills");put("actions",JsonArray(emptyList())) })=
         ExternalPlan(r.runId,id,r.battleId,r.turnId,r.phase,r.observationId,action)
     @Test fun repeatedReadsAreNonConsumingAndDuplicateSubmitDoesNotDispatch() {
         val p=protocol();val r=ready(p)
@@ -122,15 +122,22 @@ class ExternalPlanProtocolTest {
         val legacy=JsonObject(action+mapOf("initialHandEvidence" to buildJsonObject {put("complete",false)}))
         assertEquals("Accepted",p.submit(plan(next,"next",legacy)).status)
     }
-    @Test fun explicitEnemySlotDoesNotRequireInferredLayout() {
-        for (count in listOf<JsonElement?>(null, JsonPrimitive(6), JsonNull)) {
-            val p=protocol();val r=ready(p)
-            val action=buildJsonObject {
-                put("type","enemy_target");put("index",2)
-                count?.let {put("enemyCount",it)}
-            }
-            assertEquals("Accepted",p.submit(plan(r,action=action)).status)
+    @Test fun explicitEnemyTargetBelongsToTheSameCardPlan() {
+        val p=protocol();p.open("run")
+        val r=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame)
+        val action=buildJsonObject { put("type","cards");put("target",2);put("order",JsonArray(listOf(1,2,3).map(::JsonPrimitive))) }
+        assertEquals("Accepted",p.submit(plan(r,action=action)).status)
+    }
+    @Test fun singleActionsCannotReenterPerSkillObservationFlow() {
+        val p=protocol();val r=ready(p)
+        for(type in listOf("finish_skills","enemy_target","servant_skill","observe")) {
+            assertFailsWith<RpcFailure>{ p.submit(plan(r,action=buildJsonObject {put("type",type)})) }
         }
+        val batch=buildJsonObject {
+            put("type","skills");put("delayMillis",1500)
+            putJsonArray("actions") { add(buildJsonObject {put("type","servant_skill");put("slot",0);put("index",2);put("target",1)}) }
+        }
+        assertEquals("Accepted",p.submit(plan(r,action=batch)).status)
     }
     @Test fun exactCardWireShapeRejectsTruncationDuplicatesAndInvalidIndices() {
         val p=protocol();p.open("run")

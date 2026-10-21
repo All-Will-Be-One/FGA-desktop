@@ -8,7 +8,8 @@ interface NativeDecisionTurnExecutor {
     fun capture(): Pattern
     fun executeSkill(action: NativeDecisionAction)
     fun enterCards(): List<NativeDecisionCard>
-    fun returnToSkills()
+    fun delay(milliseconds: Long)
+    fun executeCardTarget(index: Int)
     fun executeCards(order: List<Int>, cards: List<NativeDecisionCard>)
 }
 
@@ -27,34 +28,32 @@ class NativeDecisionTurnRunner(private val provider: NativeBattleDecisionProvide
             try {
                 require(command.planId.isNotBlank() && command.planId.length <= 128) { "Invalid native plan identifier" }
                 require(seenPlans.size < 10_000 && seenPlans.add(command.planId)) { "Native plan cannot be replayed" }
+                require(command.action is NativeDecisionAction.Skills || command.action is NativeDecisionAction.Cards) { "A phase plan must be skills or cards" }
                 validateNativeDecision(context, command.action)
                 native.checkCancelled()
                 // Persist dispatch against the exact observation before any input.
                 provider.executing(command)
                 native.checkCancelled()
                 when (val action = command.action) {
-                    NativeDecisionAction.FinishSkills -> {
-                        provider.beforeAttack(context, native::capture)
+                    is NativeDecisionAction.Skills -> {
+                        action.actions.forEach { skill ->
+                            native.checkCancelled()
+                            native.executeSkill(skill)
+                            native.delay(action.delayMillis)
+                        }
                         context = context.copy(phase = NativeDecisionPhase.Cards, cards = native.enterCards())
                     }
                     is NativeDecisionAction.Cards -> {
+                        action.target?.let { native.executeCardTarget(it) }
                         native.executeCards(action.order, context.cards)
                         provider.completed(command)
                         provider.finishedTurn(context)
                         return
                     }
-                    is NativeDecisionAction.EnemyTarget -> {
-                        if (context.phase == NativeDecisionPhase.Cards) {
-                            native.returnToSkills()
-                            native.executeSkill(action)
-                            provider.beforeAttack(context.copy(phase = NativeDecisionPhase.Skills, cards = emptyList()), native::capture)
-                            context = context.copy(cards = native.enterCards())
-                        } else native.executeSkill(action)
-                    }
-                    else -> native.executeSkill(action)
+                    else -> error("A phase plan must be a skill batch or an explicit card plan")
                 }
                 provider.completed(command)
-                // Next await always takes a fresh capture; no old card plan survives a mutation.
+                // One observation at each phase boundary, never between batched skills.
             } catch (error: Exception) {
                 runCatching { provider.failed(command, error.message ?: error.javaClass.simpleName) }
                     .onFailure { error.addSuppressed(it) }
@@ -81,9 +80,18 @@ fun validateNativeDecision(context: NativeDecisionContext, action: NativeDecisio
             require(context.phase == NativeDecisionPhase.Skills && action.front in 0..2 && action.reserve in 0..2)
         }
         is NativeDecisionAction.EnemyTarget -> require(action.index in 0..2) { "Unsupported native enemy slot" }
+        is NativeDecisionAction.Skills -> {
+            require(context.phase == NativeDecisionPhase.Skills)
+            require(action.delayMillis in 0..10_000) { "Invalid skill interval" }
+            action.actions.forEach {
+                require(it is NativeDecisionAction.ServantSkill || it is NativeDecisionAction.MasterSkill || it is NativeDecisionAction.OrderChange) { "Only explicit skill actions belong in a skill batch" }
+                validateNativeDecision(context, it)
+            }
+        }
         NativeDecisionAction.FinishSkills -> require(context.phase == NativeDecisionPhase.Skills)
         is NativeDecisionAction.Cards -> {
             require(context.phase == NativeDecisionPhase.Cards)
+            require(action.target == null || action.target in 0..2) { "Unsupported enemy target" }
             require(action.order.size == 3 && action.order.distinct().size == 3 && action.order.all { it in 1..8 }) {
                 "Cards require exactly three explicit, distinct native slots"
             }
