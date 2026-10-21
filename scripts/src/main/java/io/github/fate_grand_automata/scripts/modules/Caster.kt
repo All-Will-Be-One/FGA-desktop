@@ -217,11 +217,11 @@ class Caster @Inject constructor(
         locations.battle.extraInfoWindowCloseClick.click()
     }
 
-    fun use(np: CommandCard.NP) {
+    fun use(np: CommandCard.NP, closeWarning: Boolean = true) {
         locations.attack.clickLocation(np).click()
 
         // click in top right to exit any cooldown/stun warning
-        (locations.battle.extraInfoWindowCloseClick - Location(0, 400)).click()
+        if (closeWarning) (locations.battle.extraInfoWindowCloseClick - Location(0, 400)).click()
     }
 
     fun use(card: CommandCard.Face) {

@@ -9,6 +9,7 @@ import io.github.fate_grand_automata.scripts.models.ServantPriorityPerWave
 import io.github.fate_grand_automata.scripts.models.SpamConfigPerTeamSlot
 import io.github.fate_grand_automata.scripts.prefs.IBattleConfig
 import io.github.fate_grand_automata.runner.ScriptRunPreferences
+import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
 import io.github.fate_grand_automata.scripts.prefs.ISupportPreferences
 import io.github.fate_grand_automata.scripts.prefs.ISupportPreferencesCommon
 import io.github.lib_automata.dagger.ScriptScope
@@ -16,6 +17,10 @@ import io.github.lib_automata.dagger.ScriptScope
 @Module
 @InstallIn(ScriptComponent::class)
 class PreferencesModule {
+    @ScriptScope
+    @Provides
+    fun provideDecisionProvider(preferences: ScriptRunPreferences): NativeBattleDecisionProvider = preferences.decisionProvider
+
     @ScriptScope
     @Provides
     fun provideBattleConfig(preferences: ScriptRunPreferences): IBattleConfig =

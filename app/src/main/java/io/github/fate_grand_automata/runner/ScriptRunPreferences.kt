@@ -5,12 +5,19 @@ import io.github.fate_grand_automata.scripts.enums.RefillResourceEnum
 import io.github.fate_grand_automata.scripts.prefs.IBattleConfig
 import io.github.fate_grand_automata.scripts.prefs.IPerServerConfigPrefs
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
+import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
+import io.github.fate_grand_automata.scripts.decision.DisabledNativeBattleDecisionProvider
 
 /** Bound per ScriptComponent so native decisions never read a transient UI preference value. */
-class ScriptRunPreferences(val prefs: IPreferences) {
+class ScriptRunPreferences(
+    val prefs: IPreferences,
+    val decisionProvider: NativeBattleDecisionProvider = DisabledNativeBattleDecisionProvider
+) {
     companion object {
-        fun automation(original: IPreferences, validated: ValidatedBattleRun): ScriptRunPreferences {
+        fun automation(original: IPreferences, validated: ValidatedBattleRun,
+                       decisionProvider: NativeBattleDecisionProvider = DisabledNativeBattleDecisionProvider): ScriptRunPreferences {
             val request = validated.request
+            require(decisionProvider.enabled == (request.decisionMode == "smart")) { "Decision mode and native provider do not match" }
             val fixedConfig = object : IBattleConfig by validated.config {
                 override val id = request.configId
                 override val server = request.server
@@ -41,7 +48,7 @@ class ScriptRunPreferences(val prefs: IPreferences) {
                     require(id == request.configId) { "Automation configuration is frozen" }
                     return fixedConfig
                 }
-            })
+            }, decisionProvider)
         }
     }
 }

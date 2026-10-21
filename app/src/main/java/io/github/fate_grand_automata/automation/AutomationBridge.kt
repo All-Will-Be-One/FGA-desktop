@@ -12,6 +12,7 @@ import io.github.fate_grand_automata.scripts.enums.GameServer
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
 import io.github.fate_grand_automata.scripts.models.BoostItem
 import io.github.fate_grand_automata.scripts.enums.ScriptModeEnum
+import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
 import io.github.fga.automation.*
 import kotlinx.serialization.json.*
 import java.io.File
@@ -31,6 +32,8 @@ object AutomationBridge {
     private var preferences:IPreferences?=null
     private var controller:AutomationController?=null
     private var dispatcher:RpcDispatcher?=null
+    private var externalPlans:ExternalPlanProtocol?=null
+    private var frames:ExternalFrameStore?=null
     private var initializationFailure:String?=null
 
     @Synchronized fun attach(value:ScriptManager) { manager=WeakReference(value) }
@@ -64,7 +67,7 @@ object AutomationBridge {
                         }
                         val request=try {
                             runner.automationRequest(run.configId,run.limits.maxRuns,run.limits.timeoutSeconds,
-                                SystemClock.elapsedRealtime()+remaining)
+                                SystemClock.elapsedRealtime()+remaining).copy(decisionMode=run.decisionMode)
                         } catch(e:Exception) {
                             callback.rejected((e as? BattleRunValidationException)?.code ?: "InvalidConfiguration",e.message ?: "Invalid native battle configuration")
                             return@post
@@ -89,6 +92,9 @@ object AutomationBridge {
                                 }
                                 override fun onExit(exit:NativeAutomationExit) {
                                     callback.exit(exit.reason,exit.completedRuns,exit.error,exit.outcome,exit.withdrawCount)
+                                    runCatching { externalPlans?.close(run.runId,exit.reason) }
+                                        .onFailure { initializationFailure="External-plan journal close failed: ${it.message}" }
+                                    frames?.release(run.runId)
                                     if(owner==run.runId) { owner=null;activeRunner=null;activeRequest=null;activeScript=null }
                                 }
                                 override fun onCleanupFailure(error:String) {
@@ -137,6 +143,11 @@ object AutomationBridge {
                 val fd=Os.open(directory.path,OsConstants.O_RDONLY,0)
                 try { Os.fsync(fd) } finally { Os.close(fd) }
             },backend)
+            externalPlans=ExternalPlanProtocol(FileExternalJournalStore(File(context.filesDir,"automation/external-plans-v1.json")) { directory ->
+                val fd=Os.open(directory.path,OsConstants.O_RDONLY,0)
+                try { Os.fsync(fd) } finally { Os.close(fd) }
+            },::permitExternalPlan)
+            frames=ExternalFrameStore(File(context.cacheDir,"automation-frames"),BuildConfig.APPLICATION_ID+".automation")
             dispatcher=RpcDispatcher(requireNotNull(controller),{
                 buildJsonObject {
                     put("backend","fga-android-native");put("applicationId",BuildConfig.APPLICATION_ID)
@@ -147,7 +158,15 @@ object AutomationBridge {
                     put("executorBusy",manager.get()?.isExecutorBusy==true)
                     put("capabilities",buildJsonObject {
                         listOf("battle","farm","configs","start","status","pause","resume","stop","events").forEach { put(it,true) }
-                        put("perStepInput",false);put("smartStrategy",false);put("liveVerified",false)
+                        put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
+                    })
+                    put("externalPlanProtocolVersion",1)
+                    put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
+                    put("externalPlanLimits",buildJsonObject {
+                        put("strategyOwner","FGOAgent");put("normalizedFrameRequired","1280x720")
+                        put("nativeTargetDialogEvidence",false);put("acceptedCardCountEvidence",false)
+                        put("maxPotentialCardChoices",3);put("automaticCardFill",false);put("maxEnemyLayoutSlots",3)
+                        put("classicPolicy",false);put("observationTtlSeconds",120)
                     })
                     put("regions",JsonArray(listOf("CN","JP","NA","TW","KR").map(::JsonPrimitive)))
                     put("transport","adb-shell-content-provider");put("callerPolicy","own_uid_or_shell_2000")
@@ -166,13 +185,43 @@ object AutomationBridge {
                         }
                     }
                 }
-            })
+            },::externalRequest)
         } catch(e:Exception) { initializationFailure=e.message ?: "Journal unavailable" }
     }
     @Synchronized fun request(text:String):String = dispatcher?.request(text) ?: buildJsonObject {
         put("ok",false);put("protocolVersion",1)
         putJsonObject("error") { put("code","JournalUnavailable");put("message",initializationFailure ?: "Provider not initialized") }
     }.toString()
+    private fun permitExternalPlan(id:String) {
+        val run=controller?.status(runId=id) ?: throw RpcFailure("RunnerUnavailable","Native controller unavailable")
+        if(run.decisionMode!="smart" || owner!=id || activeRequest?.decisionMode!="smart" || activeRunner==null ||
+            run.quiescent || run.reconciliationRequired || run.state !in setOf(RunState.Starting,RunState.Running,RunState.Paused) || run.pendingControl=="stop")
+            throw RpcFailure("ExternalPlanNotPermitted","External plans require this owned running Smart task")
+        if(System.currentTimeMillis()>=run.createdAtMillis+run.limits.timeoutSeconds*1000)
+            throw RpcFailure("DeadlineExceeded","Bounded native task deadline elapsed")
+    }
+    @Synchronized fun createDecisionProvider():NativeBattleDecisionProvider {
+        val id=owner ?: throw RpcFailure("RunnerUnavailable","No API-owned native executor")
+        permitExternalPlan(id)
+        val protocol=externalPlans ?: error("External-plan journal unavailable")
+        protocol.open(id)
+        return ExternalPlanReceiver(id,protocol,requireNotNull(frames)) { permitExternalPlan(id) }
+    }
+    private fun externalRequest(op:String,q:JsonObject):JsonObject {
+        val protocol=externalPlans ?: throw RpcFailure("JournalUnavailable","External-plan journal unavailable")
+        fun s(key:String)=q[key]?.jsonPrimitive?.content ?: throw RpcFailure("InvalidRequest","Missing $key")
+        val id=s("runId")
+        return when(op) {
+            "decision.next" -> protocol.next(id)
+            "decision.status" -> buildJsonObject { put("runId",id);put("receipt",Json.encodeToJsonElement(protocol.status(id,s("planId")))) }
+            "decision.submit" -> buildJsonObject {
+                put("runId",id)
+                put("receipt",Json.encodeToJsonElement(protocol.submit(ExternalPlan(id,s("planId"),s("battleId"),s("turnId"),s("phase"),s("observationId"),q.getValue("action").jsonObject))))
+            }
+            else -> throw RpcFailure("InvalidOperation","Unsupported external-plan operation")
+        }
+    }
+    @Synchronized fun frame(token:String):File = frames?.read(token) ?: throw java.io.FileNotFoundException("Capture unavailable")
     fun observe(type:String,detail:String) {
         val id=owner ?: return
         // Observation is best effort; it must never alter a native battle decision.
@@ -183,6 +232,7 @@ object AutomationBridge {
     fun guardInput() {
         if(owner==null) return
         val request=activeRequest ?: throw IllegalStateException("Automation request snapshot is unavailable")
+        if(request.decisionMode=="smart") permitExternalPlan(requireNotNull(owner))
         val prefs=preferences ?: throw IllegalStateException("Automation preferences are unavailable")
         val config=prefs.selectedBattleConfig
         val limits=prefs.selectedServerConfigPref

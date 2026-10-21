@@ -21,7 +21,8 @@ data class BattleRunRequest(
     val resetCompletedRuns: Boolean = true,
     val timeoutSeconds: Long? = null,
     /** Android elapsedRealtime deadline supplied by the bridge, including time queued to start. */
-    val startDeadlineElapsedRealtimeMillis: Long? = null
+    val startDeadlineElapsedRealtimeMillis: Long? = null,
+    val decisionMode: String = "script"
 )
 
 data class BattleRunLimits(
@@ -73,6 +74,11 @@ class BattleRunRequestHandler @Inject constructor(private val prefs: IPreference
         fun requireValid(condition: Boolean, code: String, message: String) {
             if (!condition) throw BattleRunValidationException(code, message)
         }
+        requireValid(request.decisionMode in setOf("script", "smart"), "InvalidDecisionMode", "Unknown battle decision mode")
+        requireValid(policy == BattleRunPolicy.Automation || request.decisionMode == "script",
+            "InvalidDecisionMode", "Interactive launches use script decisions")
+        requireValid(request.decisionMode != "smart" || request.server !is GameServer.Kr,
+            "UnsupportedSmartServer", "Smart recognition does not support KR")
 
         val config = prefs.battleConfigs.firstOrNull { it.id == request.configId }
             ?: throw BattleRunValidationException("UnknownConfig", "Battle configuration does not exist")

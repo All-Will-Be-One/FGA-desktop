@@ -23,6 +23,7 @@ import io.github.fate_grand_automata.prefs.core.PrefsCore
 import io.github.fate_grand_automata.prefs.core.CompletedRunsHolder
 import io.github.fate_grand_automata.scripts.entrypoints.AutoBattle
 import io.github.fate_grand_automata.scripts.IImageLoader
+import io.github.fate_grand_automata.scripts.decision.DisabledNativeBattleDecisionProvider
 import io.github.fate_grand_automata.scripts.entrypoints.AutoCEBomb
 import io.github.fate_grand_automata.scripts.entrypoints.AutoFriendGacha
 import io.github.fate_grand_automata.scripts.entrypoints.AutoGiftBox
@@ -356,8 +357,11 @@ class ScriptManager @Inject constructor(
                 }
                 battleRequests.apply(validated)
                 if (!mayStart(session)) return@prepare
+                val decisions = if (validated.request.decisionMode == "smart") {
+                    AutomationBridge.createDecisionProvider().also { check(it.enabled) { "Smart provider is unavailable" } }
+                } else DisabledNativeBattleDecisionProvider
                 val component = automationComponentBuilder.screenshotService(screenshotService)
-                    .runPreferences(ScriptRunPreferences.automation(preferences, validated)).build()
+                    .runPreferences(ScriptRunPreferences.automation(preferences, validated, decisions)).build()
                 if (!mayStart(session)) return@prepare
                 val entryPoint = EntryPoints.get(component, ScriptEntryPoint::class.java)
                 bindSessionResources(session, entryPoint)

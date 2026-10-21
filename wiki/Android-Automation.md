@@ -1,12 +1,12 @@
 # Local Android automation fork
 
-This candidate keeps the official native AutoBattle/Battle/AutoSkill/Caster/Card engine. It adds a high-level lifecycle interface, not a remote click loop. Base: official FGA `cfb0593c64aaaceeab3ba56040fa34ab8e32f7ba`. No scripts/libautomata battle code is changed.
+This candidate reuses native AutoBattle/Battle/Caster/Card execution. Base: official FGA `cfb0593c64aaaceeab3ba56040fa34ab8e32f7ba`. Script mode preserves normal FGA policies. Dynamic mode receives explicit external plans from FGOAgent; all skill timing/target/NP/card strategy stays there. New thin adapters live in scripts/decision; Battle has a small branch/DI seam, Caster has a default-preserving NP warning flag, and ServantTracker exposes readonly reserves. Card/AutoBattle/libautomata remain byte-identical to officialcfb0593. The full fork retains Phase1 app lifecycle/cleanup integration.
 
 ## Install and configure separately
 
 The fork applicationId is `io.github.fate_grand_automata.automation` (`.test` for debug). It does not replace official FGA or automatically import its private preferences. Use normal FGA UI to import an exported compatible configuration, set party/support/script/card priorities, select the server and prepare accessibility/screen capture. Automation never grants system consent.
 
-FGO-py Smart/Classic adaptive battle policies are not native FGA features and are not translated. Select a native script and configuration explicitly. No APK installation, consent or game acceptance has been performed in this development round.
+FGO-py Smart/Classic are not native FGA features. FGOAgent's separate replaceable policy module reuses the auto rules/data/readonly recognition; Classic remains unsupported. The host execution profile resolves recipient hints to explicit native target clicks; Android makes no default choice. No APK installation, consent or game acceptance has been performed in this development round.
 
 ## Local high-level interface
 
@@ -18,10 +18,13 @@ ProtocolVersion1 operations:
 | --- | --- | --- |
 | capabilities / version | none | package/build/upstream source, process instance, preparation and feature flags |
 | configs | none | saved id/name/server/script hash; unresolved server stays null |
-| start | requestId,configId,limits{maxRuns,timeoutSeconds,stopOnApEmpty} | original durable run identity and Starting/state |
+| start | requestId,configId,limits{maxRuns,timeoutSeconds,stopOnApEmpty},decisionMode=script\|smart | original durable run identity and Starting/state |
 | status | exactly one of runId/requestId | state, quiescent, counters, native outcome/reason |
 | pause / resume / stop | requestId,runId | accepted intent/state; not proof of exit |
 | events | runId,afterSequence | ordered events, earliest/next sequence, truncation flag |
+| decision.next | runId | current stable observation/last receipt, non-consuming |
+| decision.submit | runId,planId,battleId,turnId,phase,observationId,action | durable explicit-plan receipt |
+| decision.status | runId,planId | retained receipt; unknown effects never replay |
 
 A success envelope is `{ok:true,protocolVersion:1,result:{…}}`; failure is `{ok:false,protocolVersion:1,error:{code,message}}`. Requests are limited64KiB. IDs contain only ASCII letters/digits/underscore/dot/colon/hyphen,1..160 characters.
 
@@ -37,12 +40,12 @@ The total deadline includes queued startup and preparation and becomes a monoton
 
 Native `ExitState.timesRan` is the completed-run count. LimitRuns satisfies a finite count request; APRanOut satisfies an explicit AP request. An AP request reaching its finite run ceiling without APRanOut is not success. WithdrawDisabled means detected defeat, not completed retreat. Other errors/timeouts do not invent defeat or victory. Native log/notify events are diagnostic observations.
 
-The current interface has no screenshot export API and does not claim per-turn event coverage. Android Binder framing, caller authorization, real gesture cancellation, capture loss and foreground change still require separately authorized device tests. Existing upstream foreground assumptions remain; no new privileged window-access permission is added.
+Dynamic mode exports bounded app-private PNGs at native stable Skills/Cards boundaries using UID-restricted content read token URIs. Cards has a same-turn post-skill before-Attack parent; old observations expire after120seconds. Exact PNG hashes and trusted host complete/unselected-hand attestations bind card plans. These do not create native selected-card counting. At most three potential choices are delivered in explicit order; an unavailable NP/partial hand stops unconfirmed without a fourth input or automatic card filling. AutoSkill/spam/shuffle/native card priority are bypassed on this path. Android Binder framing, caller authorization, real gestures/capture/focus still require separately approved device tests. Existing foreground assumptions remain; no new privileged window permission is added.
 
 ## Build and update
 
 JDK21, pinned Gradle9.8.2/Kotlin2.4.10/AGP9.4.0, compileSdk37 and build-tools36.0.0. Pure protocol tests: `./gradlew -p automation test`. Upstream native tests: `./gradlew :scripts:test`. Android: `./gradlew :app:testCiUnitTest :app:assembleDebug`. Unit/compile success does not mean live acceptance.
 
-For upstream merges, review the small app runner/UI/DI/platform seams and new automation module. Keep battle-core directories equal to the selected official base, then run JVM/native tests, APK compile, integration review and the same acceptance matrix. No automated publication or production switch is included. Use the old separate application/wrapper version for rollback; do not overwrite official FGA or discard local config.
+For upstream merges, review the small Battle/Caster/ServantTracker and app runner/DI/platform seams; keep new protocol/adapters separate. Compare confirmation/target/NP warning and cleanup contracts, rerun JVM/native/policy replay tests, APK compile and the same acceptance matrix. Do not copy or rewrite native execution to resolve a merge conflict. No publication/production switch is included. Preserve the separate application/configuration and known baseline for rollback.
 
 Configuration discovery reports current metadata, not an execution attestation. v1 start selects configId and limits; it does not carry an expected server/script revision. Do not edit config/server between discovery and start. The actual dispatch configuration is validated/frozen, while atomic revision binding remains outside this candidate.

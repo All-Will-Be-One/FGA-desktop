@@ -25,6 +25,7 @@ import java.util.UUID
     val reconciliationRequired:Boolean=false, val outcome:String?=null, val withdrawCount:Int=0,
     val createdAtMillis:Long, val updatedAtMillis:Long,
     val events:List<RunEvent> = emptyList(), val commands:List<CommandReceipt> = emptyList(),
+    val decisionMode:String="script",
 ) {
     val active get() = !quiescent
 }
@@ -88,15 +89,16 @@ class AutomationController(
         return journal.runs.firstOrNull { if(runId!=null) it.runId==runId else it.requestId==requestId }
             ?: throw RpcFailure(if(runId!=null) "UnknownRun" else "UnknownRequest","No retained matching task")
     }
-    @Synchronized fun start(requestId:String,configId:String,limits:RunLimits):RunSnapshot {
+    @Synchronized fun start(requestId:String,configId:String,limits:RunLimits,decisionMode:String="script"):RunSnapshot {
         identifier(requestId);identifier(configId);limits.validate()
+        if(decisionMode !in setOf("script","smart")) throw RpcFailure("InvalidDecisionMode","decisionMode must be script or smart")
         journal.runs.firstOrNull { it.requestId==requestId }?.let {
-            if(it.configId!=configId || it.limits!=limits) throw RpcFailure("IdempotencyConflict","requestId payload changed")
+            if(it.configId!=configId || it.limits!=limits || it.decisionMode!=decisionMode) throw RpcFailure("IdempotencyConflict","requestId payload changed")
             return it
         }
         if(journal.runs.any { it.active }) throw RpcFailure("Busy","An executor owns control or its exit is unconfirmed")
         if(journal.runs.size>=10_000) throw RpcFailure("JournalCapacity","Archive with retained idempotency tombstones before accepting more tasks")
-        val run=event(RunSnapshot(requestId,newId(),configId,limits,RunState.Starting,false,createdAtMillis=now(),updatedAtMillis=now()),"start_accepted")
+        val run=event(RunSnapshot(requestId,newId(),configId,limits,RunState.Starting,false,createdAtMillis=now(),updatedAtMillis=now(),decisionMode=decisionMode),"start_accepted")
         commit(run) // Starting and requestId are durable before native side effects.
         try {
             backend.start(run,object:NativeBattleCallback {
@@ -221,21 +223,25 @@ class AutomationController(
 }
 
 /** Provider must check the Binder caller UID BEFORE calling this decoder. */
-class RpcDispatcher(private val controller:AutomationController,private val capabilities:()->JsonObject,private val configs:()->JsonObject) {
+class RpcDispatcher(private val controller:AutomationController,private val capabilities:()->JsonObject,private val configs:()->JsonObject,
+    private val externalPlans:((String,JsonObject)->JsonObject)?=null) {
     fun request(text:String):String = try {
         if(text.toByteArray().size>65536) throw RpcFailure("RequestTooLarge","Request exceeds 64KiB")
         val q=Json.parseToJsonElement(text).jsonObject
-        val allowed=setOf("protocolVersion","op","requestId","runId","configId","limits","afterSequence")
+        val allowed=setOf("protocolVersion","op","requestId","runId","configId","limits","afterSequence","decisionMode",
+            "planId","battleId","turnId","phase","observationId","action")
         if(q.keys.any { it !in allowed }) throw RpcFailure("InvalidRequest","Unknown request field")
         if(q["protocolVersion"]?.jsonPrimitive?.int!=1) throw RpcFailure("ProtocolMismatch","protocolVersion must be 1")
         fun s(k:String)=q[k]?.jsonPrimitive?.content ?: throw RpcFailure("InvalidRequest","Missing $k")
         val result=when(val op=s("op")) {
             "capabilities","version" -> capabilities()
             "configs" -> configs()
-            "start" -> controller.snapshotJson(controller.start(s("requestId"),s("configId"),Json.decodeFromJsonElement<RunLimits>(q.getValue("limits"))))
+            "start" -> controller.snapshotJson(controller.start(s("requestId"),s("configId"),Json.decodeFromJsonElement<RunLimits>(q.getValue("limits")),q["decisionMode"]?.jsonPrimitive?.content ?: "script"))
             "status" -> controller.snapshotJson(controller.status(q["runId"]?.jsonPrimitive?.content,q["requestId"]?.jsonPrimitive?.content))
             "pause","resume","stop" -> controller.snapshotJson(controller.control(s("runId"),s("requestId"),op))
             "events" -> controller.events(s("runId"),q["afterSequence"]?.jsonPrimitive?.long ?: 0)
+            "decision.next","decision.submit","decision.status" -> externalPlans?.invoke(op,q)
+                ?: throw RpcFailure("UnsupportedCapability","External-plan execution is unavailable")
             else -> throw RpcFailure("InvalidOperation","No such high-level operation")
         }
         buildJsonObject { put("ok",true);put("protocolVersion",1);put("result",result) }.toString()

@@ -5,6 +5,8 @@ import io.github.fate_grand_automata.scripts.enums.RefillResourceEnum
 import io.github.fate_grand_automata.scripts.prefs.IBattleConfig
 import io.github.fate_grand_automata.scripts.prefs.IPerServerConfigPrefs
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
+import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
+import io.github.fate_grand_automata.scripts.decision.DisabledNativeBattleDecisionProvider
 import java.lang.reflect.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -257,6 +259,32 @@ class BattleRunRequestTest {
         assertFailsWith<IllegalArgumentException> { frozen.gameServer = GameServer.Cn }
         frozen.selectedServerConfigPref.limitRuns = 0
         frozen.selectedServerConfigPref.limitRuns = 1 // Upstream's post-run limit reset is local and bounded.
+        assertTrue(f.writes.isEmpty())
+    }
+
+    @Test
+    fun `dynamic mode is explicit validated and cannot silently fall back to scripts`() {
+        val f = Fixture()
+        val smart = f.handler.validate(f.request().copy(decisionMode = "smart"), BattleRunPolicy.Automation)
+        assertEquals("script", f.request().decisionMode)
+        assertFailsWith<IllegalArgumentException> { ScriptRunPreferences.automation(f.prefs, smart) }
+        val external = object : NativeBattleDecisionProvider by DisabledNativeBattleDecisionProvider {
+            override val enabled = true
+        }
+        assertTrue(ScriptRunPreferences.automation(f.prefs, smart, external).decisionProvider === external)
+        val script = f.handler.validate(f.request(), BattleRunPolicy.Automation)
+        assertFalse(ScriptRunPreferences.automation(f.prefs, script).decisionProvider.enabled)
+        assertFalse(ScriptRunPreferences(f.prefs).decisionProvider.enabled)
+        assertFailsWith<IllegalArgumentException> { ScriptRunPreferences.automation(f.prefs, script, external) }
+        assertEquals("InvalidDecisionMode", assertFailsWith<BattleRunValidationException> {
+            f.handler.validate(f.request().copy(decisionMode = "auto"), BattleRunPolicy.Automation)
+        }.code)
+        assertEquals("InvalidDecisionMode", assertFailsWith<BattleRunValidationException> {
+            f.handler.validate(f.request().copy(decisionMode = "smart"), BattleRunPolicy.Interactive)
+        }.code)
+        assertEquals("UnsupportedSmartServer", assertFailsWith<BattleRunValidationException> {
+            f.handler.validate(f.request().copy(decisionMode = "smart", server = GameServer.Kr), BattleRunPolicy.Automation)
+        }.code)
         assertTrue(f.writes.isEmpty())
     }
 

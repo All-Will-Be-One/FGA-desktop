@@ -2,6 +2,7 @@ package io.github.fate_grand_automata.scripts.modules
 
 import io.github.fate_grand_automata.scripts.IFgoAutomataApi
 import io.github.fate_grand_automata.scripts.Images
+import io.github.fate_grand_automata.scripts.decision.ExternalPlanBattle
 import io.github.fate_grand_automata.scripts.entrypoints.AutoBattle
 import io.github.fate_grand_automata.scripts.models.NPUsage
 import io.github.fate_grand_automata.scripts.models.ParsedCard
@@ -24,7 +25,8 @@ class Battle @Inject constructor(
     private val skillSpam: SkillSpam,
     private val shuffleChecker: ShuffleChecker,
     private val stageTracker: StageTracker,
-    private val autoChooseTarget: AutoChooseTarget
+    private val autoChooseTarget: AutoChooseTarget,
+    private val externalPlans: ExternalPlanBattle
 ) : IFgoAutomataApi by api {
     init {
         prefs.stopAfterThisRun = false
@@ -76,7 +78,13 @@ class Battle @Inject constructor(
             battleConfig.raidTurnDelaySeconds.seconds.wait()
         }
 
+        externalPlans.verifyBeforeTurn()
         servantTracker.beginTurn()
+
+        if (externalPlans.enabled) {
+            externalPlans.executeTurn { clickAttack() }
+            return
+        }
 
         val npUsage = autoSkill.execute(state.stage, state.turn)
         skillSpam.spamSkills()
@@ -122,7 +130,7 @@ class Battle @Inject constructor(
 
         state.nextTurn()
 
-        if (battleConfig.autoChooseTarget) {
+        if (!externalPlans.enabled && battleConfig.autoChooseTarget) {
             autoChooseTarget.choose()
         }
     }

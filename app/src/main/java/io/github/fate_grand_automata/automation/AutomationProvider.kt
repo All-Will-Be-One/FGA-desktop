@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
 import android.os.Process
+import android.os.ParcelFileDescriptor
 import dagger.hilt.EntryPoint
 import dagger.hilt.EntryPoints
 import dagger.hilt.InstallIn
@@ -19,12 +20,23 @@ class AutomationProvider:ContentProvider() {
     interface Dependencies { fun preferences():IPreferences }
     override fun onCreate()=true
     override fun call(method:String,arg:String?,extras:Bundle?):Bundle {
-        val uid=Binder.getCallingUid()
-        if(uid!=2000 && uid!=Process.myUid()) throw SecurityException("Automation requires the local ADB shell UID")
+        requireCaller()
         require(method=="rpc" && arg!=null) { "Use the versioned high-level RPC" }
         val context=requireNotNull(context).applicationContext
         AutomationBridge.initialize(context,EntryPoints.get(context,Dependencies::class.java).preferences())
         return Bundle().apply { putString("json",AutomationBridge.request(arg)) }
+    }
+    private fun requireCaller() {
+        val uid=Binder.getCallingUid()
+        if(uid!=2000 && uid!=Process.myUid()) throw SecurityException("Automation requires the local ADB shell UID")
+    }
+    override fun openFile(uri:Uri,mode:String):ParcelFileDescriptor {
+        requireCaller()
+        val context=requireNotNull(context).applicationContext
+        require(mode=="r" && uri.scheme=="content" && uri.authority==context.packageName+".automation" &&
+            uri.pathSegments.size==2 && uri.pathSegments[0]=="frames" && uri.query==null && uri.fragment==null) { "Only token-owned read-only captures are available" }
+        AutomationBridge.initialize(context,EntryPoints.get(context,Dependencies::class.java).preferences())
+        return ParcelFileDescriptor.open(AutomationBridge.frame(uri.pathSegments[1]),ParcelFileDescriptor.MODE_READ_ONLY)
     }
     override fun query(uri:Uri,projection:Array<out String>?,selection:String?,selectionArgs:Array<out String>?,sortOrder:String?):Cursor? = throw SecurityException("No query surface")
     override fun getType(uri:Uri):String? = null
