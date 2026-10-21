@@ -16,6 +16,16 @@ import io.github.lib_automata.dagger.ScriptScope
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
+/** A transition can still show Cards on the first post-gesture capture. */
+internal fun IFgoAutomataApi.returnToExternalSkills() {
+    locations.attack.backClick.click()
+    // Reuse the upstream cancellable matcher loop and normal similarity. Do
+    // not freeze a snapshot around this wait or repeat the Back input.
+    if (!locations.battle.screenCheckRegion.exists(images[Images.BattleScreen], 5.seconds)) {
+        throw NativeDecisionException("NativeReturnToSkillsTimeout")
+    }
+}
+
 /** Adapts external plans to upstream transactions; it contains no battle policy. */
 @ScriptScope
 class ExternalPlanBattle @Inject constructor(
@@ -114,7 +124,7 @@ class ExternalPlanBattle @Inject constructor(
                 return cardExecutor.readHand()
             }
             override fun returnToSkills() {
-                locations.attack.backClick.click()
+                this@ExternalPlanBattle.returnToExternalSkills()
                 requireStableExternalSkillsScene()
             }
             override fun executeCards(order: List<Int>, cards: List<NativeDecisionCard>) {
