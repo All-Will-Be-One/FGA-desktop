@@ -62,7 +62,6 @@ class ExternalPlanReceiver(
                 "master_skill" -> NativeDecisionAction.MasterSkill(n("index"),target())
                 "order_change" -> NativeDecisionAction.OrderChange(n("front"),n("reserve"))
                 "enemy_target" -> NativeDecisionAction.EnemyTarget(n("index"))
-                "observe" -> NativeDecisionAction.Observe
                 "finish_skills" -> NativeDecisionAction.FinishSkills
                 "cards" -> NativeDecisionAction.Cards(value.getValue("order").jsonArray.map { it.jsonPrimitive.int })
                 else -> error("Unsupported explicit external action")

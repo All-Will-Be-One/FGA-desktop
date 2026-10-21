@@ -185,14 +185,4 @@ class ExternalPlanProtocolTest {
         val raw=Json.parseToJsonElement(rpc.request("""{"protocolVersion":1,"op":"tap","runId":"run","x":1}""")).jsonObject
         assertFalse(raw.getValue("ok").jsonPrimitive.boolean);assertEquals(1,calls)
     }
-    @Test
-    fun `observe is deduplicated and refresh keeps action identity validation`() {
-        val p=protocol()
-        val r=ready(p)
-        val request=plan(r,action=buildJsonObject {put("type","observe")})
-        assertEquals("Accepted",p.submit(request).status)
-        assertEquals(p.submit(request),p.submit(request))
-        assertFailsWith<RpcFailure> {p.submit(request.copy(action=buildJsonObject {put("type","observe");put("fallback",true)}))}
-    }
-
 }

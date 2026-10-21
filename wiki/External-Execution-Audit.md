@@ -68,10 +68,3 @@ D13 removes the composite Attack-present/SkillUse-absent/Cancel-absent/ServantEx
 Caster's custom closeWarning flag and ServantTracker's reserves getter are reverted to official bytes. They are ancillary diff reduction, not extra invented deletion counts. Card, AutoBattle and libautomata remain official bytes. Battle retains only external routing and native-auto-target isolation. System-side added code still contains necessary new RPC/lifecycle validation; it is not described as entirely original upstream code.
 
 Regressions exercise NP-only plans, partial/unknown/stunned exported hands, scene changes after skills, absent recognition of explicit recipients, missing parent/host attestation, no observation deadline, exact three-choice wire mapping and original Caster calls. Invalid native indices, duplicate/stale identities, actual cancellation, journal failure, OS gesture drain and single-executor ownership remain rejected/visible. Mock and compile results do not prove live game effects. A new fixed APK requires separate installation approval; no production switch is implied.
-
-
-## Capture-only request after the audit
-
-External-plan protocol3 adds only `{ "type": "observe" }`. The external Agent may request a fresh current-phase frame using the existing plan identity, receipt and next-await capture path. Native execution performs no click, no scene/effect check, no wait, no policy decision and no turn advancement for this request. A completed observation request means transport execution completed; it does not prove any skill effect. Ordinary upstream Caster/Card/AutoBattle/libautomata remain unchanged.
-
-Cards observation requests refresh only the current PNG. They retain the existing before-Attack parent and cached card metadata; they do not perform Back/Attack or recover an unknown parent/hand. The host must explicitly negotiate protocol3 before sending this action. Old protocol2 candidates do not support it. The host owns recognition retry decisions and the existing whole-task deadline/cancel continues to bound the session.

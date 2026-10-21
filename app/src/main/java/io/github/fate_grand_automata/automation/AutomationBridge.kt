@@ -156,7 +156,7 @@ object AutomationBridge {
                         listOf("battle","farm","configs","start","status","pause","resume","stop","events").forEach { put(it,true) }
                         put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
                     })
-                    put("externalPlanProtocolVersion",3)
+                    put("externalPlanProtocolVersion",2)
                     put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
                     put("externalPlanLimits",buildJsonObject {
                         put("strategyOwner","FGOAgent");put("frameTransformOwner","FGOAgent")
