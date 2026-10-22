@@ -46,6 +46,7 @@ class MainScreenViewModel @Inject constructor(
 
     private val oncePerActivityStart = AtomicBoolean(false)
     fun activityStarted() = oncePerActivityStart.set(true)
+    fun consumeAutoStart() = oncePerActivityStart.set(false)
 
     // Activity context is needed since we can't show AlertDialog with Application context.
     fun ensureRootDir(context: Context, pickDirectory: () -> Unit): Boolean {

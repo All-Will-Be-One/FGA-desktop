@@ -53,3 +53,12 @@ JDK21, pinned Gradle9.8.2/Kotlin2.4.10/AGP9.4.0, compileSdk37 and build-tools36.
 For upstream merges, review the small Battle route and app runner/DI/platform seams; keep new protocol/adapters separate. Compare confirmation/target/NP warning and cleanup contracts, rerun JVM/native/policy replay tests, APK compile and the same acceptance matrix. Do not copy or rewrite native execution to resolve a merge conflict. No publication/production switch is included. Preserve the separate application/configuration and known baseline for rollback.
 
 Configuration discovery reports current metadata, not an execution attestation. v1 start selects configId and limits; it does not carry an expected server/script revision. Do not edit config/server between discovery and start. The actual dispatch configuration is validated/frozen, while atomic revision binding remains outside this candidate.
+
+
+## Explicit platform lifecycle candidate
+
+The existing UID-protected provider now offers platform.status/prepare/close, platform.shizuku.request, explicit platform.accessibility.enable/disable and platform.capture.permission with a fixed mode. Host ADB invokes the ordinary MainActivity and the same capture launcher; no new exported sensitive Activity or URL scheme is added. Shizuku13.1.5 uses a short-lived shell-only UserService for this app’s accessibility entry and own-package PROJECT_MEDIA only. It preserves other accessibility services, never watches/re-enables user-disabled access, and does not change battle modules, screenshot providers or native strategy.
+
+New permission: moe.shizuku.manager.permission.API_V23, with normal explicit Shizuku client consent. This is shell-level access, broader than a technically scoped accessibility permission. The binder-delivery provider is exported but protected by INTERACT_ACROSS_USERS_FULL; that permission is not requested by this app. No root/Sui initialization or pairing is used. PROJECT_MEDIA allow can persist after Shizuku exits: any authorized trial must save and restore the original app/user mode. Installation and actual privilege use require separate disclosure/approval; JVM tests are not device validation.
+
+Stop the owned task and await quiescent before closing platform services. platform.close cancels pending preparation and ignores a late capture result; a later explicit prepare can use the normal system flow again. Never routinely force-stop FGA, which can remove Android16 accessibility authorization.

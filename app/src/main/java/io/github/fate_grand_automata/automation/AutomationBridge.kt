@@ -12,6 +12,7 @@ import io.github.fate_grand_automata.scripts.enums.GameServer
 import io.github.fate_grand_automata.scripts.prefs.IPreferences
 import io.github.fate_grand_automata.scripts.decision.NativeBattleDecisionProvider
 import io.github.fga.automation.*
+import io.github.fate_grand_automata.automation.platform.PlatformLifecycle
 import kotlinx.serialization.json.*
 import java.io.File
 import java.lang.ref.WeakReference
@@ -34,6 +35,8 @@ object AutomationBridge {
     private var initializationFailure:String?=null
 
     @Synchronized fun attach(value:ScriptManager) { manager=WeakReference(value) }
+    @Synchronized fun executorBusy():Boolean = ProcessScriptRunGate.gate.currentReservation()!=null ||
+        runCatching { controller?.status()?.quiescent==false }.getOrDefault(false)
     @Synchronized fun detach(value:ScriptManager) {
         if(manager.get()===value) manager.clear()
         if(activeRunner===value) owner?.let { controller?.uncertain(it,"ServiceDestroyed") }
@@ -157,6 +160,7 @@ object AutomationBridge {
                         put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
                     })
                     put("externalPlanProtocolVersion",4)
+                    put("platformLifecycleVersion",1)
                     put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
                     put("externalPlanLimits",buildJsonObject {
                         put("strategyOwner","FGOAgent");put("frameTransformOwner","FGOAgent")
@@ -181,7 +185,7 @@ object AutomationBridge {
                         }
                     }
                 }
-            },::externalRequest)
+            },platform={ op,q -> PlatformLifecycle.request(context,op,q) },externalPlans=::externalRequest)
         } catch(e:Exception) { initializationFailure=e.message ?: "Journal unavailable" }
     }
     @Synchronized fun request(text:String):String = dispatcher?.request(text) ?: buildJsonObject {

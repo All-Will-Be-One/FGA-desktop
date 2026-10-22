@@ -192,4 +192,20 @@ class ExternalPlanProtocolTest {
         val raw=Json.parseToJsonElement(rpc.request("""{"protocolVersion":1,"op":"tap","runId":"run","x":1}""")).jsonObject
         assertFalse(raw.getValue("ok").jsonPrimitive.boolean);assertEquals(1,calls)
     }
+    @Test fun platformDispatchIsExplicitAndNeverStartsABattle() {
+        val controller=AutomationController(AutomationControllerTest.Store(),AutomationControllerTest.Backend())
+        val calls=mutableListOf<String>()
+        val rpc=RpcDispatcher(controller,{buildJsonObject{}},{buildJsonObject{}},platform={op,_ ->
+            calls.add(op);buildJsonObject {put("accepted",true)}
+        })
+        for(op in listOf("platform.status","platform.prepare","platform.close","platform.shizuku.request",
+            "platform.accessibility.enable","platform.accessibility.disable")) {
+            val reply=Json.parseToJsonElement(rpc.request("""{"protocolVersion":1,"op":"$op"}""")).jsonObject
+            assertTrue(reply.getValue("ok").jsonPrimitive.boolean)
+        }
+        assertEquals(6,calls.size)
+        val arbitrary=Json.parseToJsonElement(rpc.request("""{"protocolVersion":1,"op":"platform.shell"}""")).jsonObject
+        assertFalse(arbitrary.getValue("ok").jsonPrimitive.boolean)
+        assertEquals(6,calls.size)
+    }
 }

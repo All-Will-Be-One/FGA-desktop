@@ -224,12 +224,13 @@ class AutomationController(
 
 /** Provider must check the Binder caller UID BEFORE calling this decoder. */
 class RpcDispatcher(private val controller:AutomationController,private val capabilities:()->JsonObject,private val configs:()->JsonObject,
+    private val platform:((String,JsonObject)->JsonObject)?=null,
     private val externalPlans:((String,JsonObject)->JsonObject)?=null) {
     fun request(text:String):String = try {
         if(text.toByteArray().size>65536) throw RpcFailure("RequestTooLarge","Request exceeds 64KiB")
         val q=Json.parseToJsonElement(text).jsonObject
         val allowed=setOf("protocolVersion","op","requestId","runId","configId","limits","afterSequence","decisionMode",
-            "planId","battleId","turnId","phase","observationId","action")
+            "planId","battleId","turnId","phase","observationId","action","mode")
         if(q.keys.any { it !in allowed }) throw RpcFailure("InvalidRequest","Unknown request field")
         if(q["protocolVersion"]?.jsonPrimitive?.int!=1) throw RpcFailure("ProtocolMismatch","protocolVersion must be 1")
         fun s(k:String)=q[k]?.jsonPrimitive?.content ?: throw RpcFailure("InvalidRequest","Missing $k")
@@ -242,6 +243,9 @@ class RpcDispatcher(private val controller:AutomationController,private val capa
             "events" -> controller.events(s("runId"),q["afterSequence"]?.jsonPrimitive?.long ?: 0)
             "decision.next","decision.submit","decision.status" -> externalPlans?.invoke(op,q)
                 ?: throw RpcFailure("UnsupportedCapability","External-plan execution is unavailable")
+            "platform.status","platform.prepare","platform.close","platform.shizuku.request",
+            "platform.accessibility.enable","platform.accessibility.disable","platform.capture.permission" -> platform?.invoke(op,q)
+                ?: throw RpcFailure("UnsupportedCapability","Platform lifecycle is unavailable")
             else -> throw RpcFailure("InvalidOperation","No such high-level operation")
         }
         buildJsonObject { put("ok",true);put("protocolVersion",1);put("result",result) }.toString()

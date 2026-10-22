@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,12 +41,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import io.github.fate_grand_automata.BuildConfig
 import io.github.fate_grand_automata.R
 import io.github.fate_grand_automata.accessibility.TapperService
+import io.github.fate_grand_automata.automation.platform.PlatformLifecycle
 import io.github.fate_grand_automata.runner.ScriptRunnerService
 import io.github.fate_grand_automata.scripts.prefs.wantsMediaProjectionToken
 import io.github.fate_grand_automata.ui.Heading
@@ -101,7 +105,7 @@ fun MainScreen(
     val context = LocalContext.current
 
     val startMediaProjection = rememberLauncherForActivityResult(StartMediaProjection()) {
-        vm.onStartMediaProjectionResult(context, it)
+        if (PlatformLifecycle.finishCapture(it != null)) vm.onStartMediaProjectionResult(context, it)
     }
 
     val pickDirectory: () -> Unit = { dirPicker?.launch(Uri.EMPTY) }
@@ -116,6 +120,7 @@ fun MainScreen(
 
     fun toggleOverlayService() {
         toggling = false
+        PlatformLifecycle.captureConsent.value = PlatformLifecycle.captureConsent.value.copy(closed = false)
 
         toggleOverlayService(
             context = context,
@@ -124,20 +129,36 @@ fun MainScreen(
             requestNotifications = requestNotifications,
             showOverlayDisabled = { overlayDisabledDialog.show() },
             showAccessibilityDisabled = { accessibilityDisabledDialog.show() },
-            startMediaProjection = { startMediaProjection.launch() }
+            startMediaProjection = {
+                if (PlatformLifecycle.beginCapture()) startMediaProjection.launch()
+            }
         )
+    }
+
+    val externalPrepare by PlatformLifecycle.prepareRequested
+    val captureConsent by PlatformLifecycle.captureConsent
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    fun consumeExternalPrepare() {
+        PlatformLifecycle.prepareRequested.value = false
+        vm.consumeAutoStart()
+        if (!ScriptRunnerService.serviceStarted.value) toggleOverlayService()
+    }
+    LaunchedEffect(externalPrepare, captureConsent.pending) {
+        if (externalPrepare && !captureConsent.pending && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) consumeExternalPrepare()
     }
 
     dirPicker = rememberLauncherForActivityResult(OpenDocTreePersistable()) {
         if (it != null) {
             vm.storageProvider.setRoot(it)
 
-            toggleOverlayService()
+            if (!PlatformLifecycle.captureConsent.value.closed) toggleOverlayService()
         }
     }
 
     OnResume {
-        if (toggling || vm.autoStartService) {
+        if (externalPrepare && !captureConsent.pending) {
+            consumeExternalPrepare()
+        } else if (!captureConsent.pending && !captureConsent.closed && (toggling || vm.autoStartService)) {
             toggleOverlayService()
         }
     }

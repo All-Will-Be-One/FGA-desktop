@@ -82,6 +82,12 @@
             android:authorities="${applicationId}.automation"
             android:exported="true"
             android:grantUriPermissions="false" />
+        <provider
+            android:name=".automation.platform.ShellShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 
 </manifest>
