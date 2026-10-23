@@ -163,7 +163,7 @@ object AutomationBridge {
                     put("upstreamRevision","cfb0593c64aaaceeab3ba56040fa34ab8e32f7ba")
                     put("candidateRevision",BuildConfig.AUTOMATION_SOURCE_REVISION)
                     put("instanceId",instanceId);put("prepared",manager.get()?.isAutomationPrepared==true)
-                    put("executorBusy",manager.get()?.isExecutorBusy==true)
+                    put("executorBusy",executorBusy())
                     put("capabilities",buildJsonObject {
                         listOf("battle","farm","configs","start","status","pause","resume","stop","events").forEach { put(it,true) }
                         put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
