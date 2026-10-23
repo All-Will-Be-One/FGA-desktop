@@ -41,6 +41,7 @@ class BattleRunRequestTest {
         var boost = -1
         var withdraw = false
         var configsPresent = true
+        var forbidLegacy = false
         val writes = mutableListOf<String>()
         val serverPrefs = ServerPrefs(GameServer.Jp.Original)
         var server: GameServer = GameServer.En.Original
@@ -50,7 +51,7 @@ class BattleRunRequestTest {
             when (name) {
                 "getId" -> "existing"
                 "getServer" -> configServer
-                "getSkillCommand" -> command
+                "getSkillCommand" -> { check(!forbidLegacy) { "Unused legacy getter accessed" }; command }
                 else -> error("Unexpected config call: $name")
             }
         }
@@ -89,8 +90,8 @@ class BattleRunRequestTest {
                 assertTrue(shouldLimitMats)
                 assertEquals(7, limitMats)
                 assertFalse(shouldLimitCEs)
-                assertEquals(9, limitCEs)
-                assertEquals(listOf(1, 2, 3, 4, 5), listOf(copperApple, blueApple, silverApple, goldApple, rainbowApple))
+                assertEquals(1, limitCEs)
+                assertEquals(listOf(0, 0, 0, 0, 0), listOf(copperApple, blueApple, silverApple, goldApple, rainbowApple))
                 assertEquals(emptyList(), resources)
                 assertEquals(RefillResourceEnum.Gold, selectedApple)
                 assertFalse(waitForAPRegen)
@@ -120,7 +121,8 @@ class BattleRunRequestTest {
         val f = Fixture()
         f.handler.apply(f.request())
         val snapshot = f.handler.snapshot("existing", GameServer.Jp.Original)
-        assertEquals(f.request().copy(timeoutSeconds = null), snapshot)
+        assertEquals(f.request().copy(timeoutSeconds = null, limits = f.request().limits.copy(limitCEs = 1),
+            refills = BattleRefills(emptySet(), 0, 0, 0, 0, 0)), snapshot)
     }
 
     @Test
@@ -196,7 +198,7 @@ class BattleRunRequestTest {
             val validated = f.handler.validate(f.request().copy(decisionMode = "smart"), BattleRunPolicy.Automation)
             val provider = object : NativeBattleDecisionProvider by DisabledNativeBattleDecisionProvider { override val enabled = true }
             val fixed = ScriptRunPreferences.automation(f.prefs, validated, provider).prefs
-            assertEquals(-1, fixed.boostItemSelectionMode)
+            assertEquals(0, fixed.boostItemSelectionMode)
             assertFalse(fixed.withdrawEnabled)
             assertTrue(fixed.selectedServerConfigPref.resources.isEmpty())
         }
@@ -210,8 +212,8 @@ class BattleRunRequestTest {
         val request = f.request()
         for (candidate in listOf(
             request.copy(limits = request.limits.copy(limitRuns = 0)),
-            request.copy(refills = request.refills.copy(copper = -1)),
-            request.copy(refills = request.refills.copy(gold = 1000))
+            request.copy(refills = request.refills.copy(resources = setOf(RefillResourceEnum.Copper), copper = -1)),
+            request.copy(refills = request.refills.copy(resources = setOf(RefillResourceEnum.Gold), gold = 1000))
         )) {
             assertFailsWith<BattleRunValidationException> { f.handler.apply(candidate) }
         }
@@ -247,7 +249,7 @@ class BattleRunRequestTest {
         assertEquals(originalCommand, frozen.selectedBattleConfig.skillCommand)
         assertEquals(GameServer.Jp.Original, frozen.gameServer)
         assertEquals(GameServer.Jp.Original, frozen.selectedBattleConfig.server)
-        assertEquals(-1, frozen.boostItemSelectionMode)
+        assertEquals(0, frozen.boostItemSelectionMode)
         assertFalse(frozen.withdrawEnabled)
         with(frozen.selectedServerConfigPref) {
             assertTrue(resources.isEmpty())
@@ -255,7 +257,7 @@ class BattleRunRequestTest {
             assertTrue(shouldLimitRuns)
             assertEquals(5, limitRuns)
             assertEquals(7, limitMats)
-            assertEquals(9, limitCEs)
+            assertEquals(1, limitCEs)
             assertEquals(0, currentAppleCount)
         }
         assertFailsWith<IllegalStateException> { frozen.selectedBattleConfig.skillCommand = "o1" }
@@ -294,6 +296,27 @@ class BattleRunRequestTest {
             f.handler.validate(f.request().copy(decisionMode = "smart", server = GameServer.Kr), BattleRunPolicy.Automation)
         }.code)
         assertTrue(f.writes.isEmpty())
+    }
+
+    @Test
+    fun `Smart never reads unused legacy command and disabled counters stay local`() {
+        val f = Fixture(); f.forbidLegacy = true
+        val request = f.request().copy(decisionMode = "smart",
+            limits = BattleRunLimits(true, 1, false, -7, false, 0),
+            refills = BattleRefills(emptySet(), -1, 2000, -4, 5000, -1))
+        val valid = f.handler.validate(request, BattleRunPolicy.Automation)
+        val provider = object : NativeBattleDecisionProvider by DisabledNativeBattleDecisionProvider { override val enabled = true }
+        val fixed = ScriptRunPreferences.automation(f.prefs, valid, provider).prefs
+        assertEquals("", fixed.selectedBattleConfig.skillCommand)
+        assertEquals(1, fixed.selectedServerConfigPref.limitMats)
+        assertEquals(1, fixed.selectedServerConfigPref.limitCEs)
+        f.handler.apply(valid)
+        assertEquals(1, f.serverPrefs.limitMats)
+        assertEquals(0, f.serverPrefs.copperApple)
+        assertFailsWith<IllegalStateException> { f.handler.validate(request.copy(decisionMode = "script"), BattleRunPolicy.Automation) }
+        assertFailsWith<BattleRunValidationException> {
+            f.handler.validate(request.copy(limits = request.limits.copy(shouldLimitMaterials = true)), BattleRunPolicy.Automation)
+        }
     }
 
     companion object {

@@ -79,19 +79,28 @@ class BattleRunRequestHandler @Inject constructor(private val prefs: IPreference
 
         val config = prefs.battleConfigs.firstOrNull { it.id == request.configId }
             ?: throw BattleRunValidationException("UnknownConfig", "Battle configuration does not exist")
-        val skillCommand = config.skillCommand
+        val skillCommand = if (request.decisionMode == "smart") "" else config.skillCommand
         val configServer = config.server
         requireValid(
             configServer == null || configServer.simple == request.server.simple,
             "ServerMismatch", "Battle configuration belongs to a different game server"
         )
         with(request.limits) {
-            requireValid(listOf(limitRuns, limitMaterials, limitCEs).all { it in 1..99_999 },
+            requireValid(listOf(shouldLimitRuns to limitRuns, shouldLimitMaterials to limitMaterials,
+                shouldLimitCEs to limitCEs).all { (enabled, value) -> !enabled || value in 1..99_999 },
                 "InvalidLimits", "Battle limits must be between 1 and 99999")
         }
         with(request.refills) {
             requireValid(resources.size <= 1, "InvalidRefills", "Select at most one refill resource")
-            requireValid(listOf(copper, bronze, silver, gold, saintQuartz).all { it in 0..999 },
+            val selectedCount = when (resources.firstOrNull()) {
+                RefillResourceEnum.Copper -> copper
+                RefillResourceEnum.Bronze -> bronze
+                RefillResourceEnum.Silver -> silver
+                RefillResourceEnum.Gold -> gold
+                RefillResourceEnum.SQ -> saintQuartz
+                null -> 0
+            }
+            requireValid(selectedCount in 0..999,
                 "InvalidRefills", "Refill counts must be between 0 and 999")
         }
         if (policy == BattleRunPolicy.Automation) {
@@ -125,18 +134,21 @@ class BattleRunRequestHandler @Inject constructor(private val prefs: IPreference
         prefs.selectedServerConfigPref = perServer
         with(request.limits) {
             perServer.shouldLimitRuns = shouldLimitRuns
-            perServer.limitRuns = limitRuns
+            if (shouldLimitRuns) perServer.limitRuns = limitRuns
             perServer.shouldLimitMats = shouldLimitMaterials
-            perServer.limitMats = limitMaterials
+            if (shouldLimitMaterials) perServer.limitMats = limitMaterials
             perServer.shouldLimitCEs = shouldLimitCEs
-            perServer.limitCEs = limitCEs
+            if (shouldLimitCEs) perServer.limitCEs = limitCEs
         }
         with(request.refills) {
-            perServer.copperApple = copper
-            perServer.blueApple = bronze
-            perServer.silverApple = silver
-            perServer.goldApple = gold
-            perServer.rainbowApple = saintQuartz
+            when (resources.firstOrNull()) {
+                RefillResourceEnum.Copper -> perServer.copperApple = copper
+                RefillResourceEnum.Bronze -> perServer.blueApple = bronze
+                RefillResourceEnum.Silver -> perServer.silverApple = silver
+                RefillResourceEnum.Gold -> perServer.goldApple = gold
+                RefillResourceEnum.SQ -> perServer.rainbowApple = saintQuartz
+                null -> Unit
+            }
             resources.firstOrNull()?.let { perServer.selectedApple = it }
             perServer.updateResources(resources)
         }

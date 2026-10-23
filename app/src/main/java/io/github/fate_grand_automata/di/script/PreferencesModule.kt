@@ -38,21 +38,21 @@ class PreferencesModule {
 
     @ScriptScope
     @Provides
-    fun provideSpamConfig(battleConfig: IBattleConfig): SpamConfigPerTeamSlot =
-        SpamConfigPerTeamSlot(battleConfig.spam)
+    fun provideSpamConfig(battleConfig: IBattleConfig, preferences: ScriptRunPreferences): SpamConfigPerTeamSlot =
+        SpamConfigPerTeamSlot(if (preferences.decisionProvider.enabled) emptyList() else battleConfig.spam)
 
     @ScriptScope
     @Provides
-    fun provideSkillCommand(battleConfig: IBattleConfig): AutoSkillCommand =
-        AutoSkillCommand.parse(battleConfig.skillCommand)
+    fun provideSkillCommand(battleConfig: IBattleConfig, preferences: ScriptRunPreferences): AutoSkillCommand =
+        AutoSkillCommand.parse(if (preferences.decisionProvider.enabled) "" else battleConfig.skillCommand)
 
     @ScriptScope
     @Provides
-    fun provideCardPriority(battleConfig: IBattleConfig): CardPriorityPerWave =
-        battleConfig.cardPriority
+    fun provideCardPriority(battleConfig: IBattleConfig, preferences: ScriptRunPreferences): CardPriorityPerWave =
+        if (preferences.decisionProvider.enabled) CardPriorityPerWave.default else battleConfig.cardPriority
 
     @ScriptScope
     @Provides
-    fun provideServantPriority(battleConfig: IBattleConfig): ServantPriorityPerWave? =
-        if (battleConfig.useServantPriority) battleConfig.servantPriority else null
+    fun provideServantPriority(battleConfig: IBattleConfig, preferences: ScriptRunPreferences): ServantPriorityPerWave? =
+        if (!preferences.decisionProvider.enabled && battleConfig.useServantPriority) battleConfig.servantPriority else null
 }

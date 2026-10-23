@@ -37,7 +37,7 @@ class ScriptRunPreferences(
                     get() = fixedConfig
                     set(value) { require(value === fixedConfig) { "Automation configuration is frozen" } }
                 override val battleConfigs = listOf(fixedConfig)
-                override val boostItemSelectionMode = -1
+                override val boostItemSelectionMode = 0 // Existing native Enabled.Skip: never consume an item.
                 override val withdrawEnabled = false
                 override var stopAfterThisRun = false
                 override fun getPerServerConfigPref(server: GameServer): IPerServerConfigPrefs {
@@ -71,12 +71,12 @@ private class AutomationServerPreferences(private val request: BattleRunRequest)
         require(resources.isEmpty()) { "Automation cannot enable refills" }
     }
     override var shouldLimitRuns = true
-    override var limitRuns = request.limits.limitRuns
-        set(value) { require(value <= request.limits.limitRuns) { "Automation run limit cannot increase" }; field = value }
+    override var limitRuns = if (request.limits.shouldLimitRuns) request.limits.limitRuns else 1
+        set(value) { require(value <= maxOf(1, request.limits.limitRuns)) { "Automation run limit cannot increase" }; field = value }
     override var shouldLimitMats = request.limits.shouldLimitMaterials
-    override var limitMats = request.limits.limitMaterials
-        set(value) { require(value <= request.limits.limitMaterials) { "Automation material limit cannot increase" }; field = value }
+    override var limitMats = if (request.limits.shouldLimitMaterials) request.limits.limitMaterials else 1
+        set(value) { require(value <= maxOf(1, request.limits.limitMaterials)) { "Automation material limit cannot increase" }; field = value }
     override var shouldLimitCEs = request.limits.shouldLimitCEs
-    override var limitCEs = request.limits.limitCEs
-        set(value) { require(value <= request.limits.limitCEs) { "Automation CE limit cannot increase" }; field = value }
+    override var limitCEs = if (request.limits.shouldLimitCEs) request.limits.limitCEs else 1
+        set(value) { require(value <= maxOf(1, request.limits.limitCEs)) { "Automation CE limit cannot increase" }; field = value }
 }
