@@ -227,8 +227,9 @@ class ScriptManager @Inject constructor(
         runCatching { imageLoader.clearSupportCache() }
             .onFailure { Timber.w(it, "Support cache cleanup failed after native input stopped") }
         if (serviceDestroyed) {
-            runCatching { screenshotServiceHolder.close() }
-                .onFailure { failures += "Screenshot service could not be closed: ${it.message}" }
+            closeOptionalNativeResource({ screenshotServiceHolder.close() }) {
+                Timber.w(it, "Screenshot cleanup failed after native input stopped")
+            }
             runCatching { imageLoader.clearImageCache() }
                 .onFailure { Timber.w(it, "Image cache cleanup failed after native input stopped") }
         }
@@ -445,6 +446,7 @@ class ScriptManager @Inject constructor(
     private fun onScriptExit(e: Exception, session: RunSession): Job {
         // EntryPoint invokes this listener before its script thread actually returns.
         session.nativeThread = Thread.currentThread()
+        session.threadStarted = true
         return cleanupScope.launch { handleScriptExit(e, session) }
     }
 
@@ -824,9 +826,9 @@ class ScriptManager @Inject constructor(
             runGate.start(session.reservation) {
                 deadlineExpired = startupDeadlineExpired(session.deadlineElapsedRealtimeMillis, SystemClock.elapsedRealtime())
                 if (!deadlineExpired && !serviceDestroyed) {
-                    // If thread creation throws, retain ownership unless its absence is proven.
-                    session.threadStarted = true
-                    entryPoint.run()
+                    // Upstream run() creates and starts the thread, then returns.
+                    // Creation/start failure has no executor; a fast exit callback also marks started.
+                    startNativeEntryPoint({ entryPoint.run() }) { session.threadStarted = true }
                     threadStarted = true
                 }
             }

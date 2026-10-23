@@ -44,6 +44,31 @@ class AutomationControllerTest {
     }
     private val limits=RunLimits(1,60)
 
+    @Test fun ordinaryJournalFailureDoesNotBlockStopOrConfirmedExit() {
+        val store=Store();val b=Backend();val c=controller(store,b);val a=c.start("r","config",limits)
+        store.fail=true
+        c.control(a.runId,"stop","stop")
+        assertEquals(a.runId to "stop",b.controls.single())
+        b.callbacks.getValue(a.runId).exit("Abort",0)
+        assertTrue(c.status(runId=a.runId).quiescent)
+        assertNotNull(c.status(runId=a.runId).persistenceWarning)
+        assertEquals("IdentityPersistenceFailed",assertFailsWith<RpcFailure>{c.start("new","config",limits)}.code)
+        assertEquals(1,b.starts.size)
+    }
+    @Test fun onlyAnAbsentPreviousProcessCanBeReconciled() {
+        val s=Store();val b=Backend()
+        val old=AutomationController(s,b,processInstanceId="process-a")
+        val run=old.start("r","config",limits)
+        val same=AutomationController(s,Backend(),processInstanceId="process-a")
+        assertTrue(same.hasUnreleasedOwner());assertTrue(same.reconcilePreviousProcess(true).isEmpty())
+        assertFailsWith<RpcFailure>{same.start("new","config",limits)}
+        val nextBackend=Backend();val next=AutomationController(s,nextBackend,processInstanceId="process-b")
+        assertTrue(next.reconcilePreviousProcess(false).isEmpty());assertTrue(next.hasUnreleasedOwner())
+        assertEquals(listOf(run.runId),next.reconcilePreviousProcess(true))
+        assertFalse(next.hasUnreleasedOwner());assertEquals(0,next.status(runId=run.runId).completedRuns)
+        assertTrue(nextBackend.starts.isEmpty())
+        next.start("new","config",limits);assertEquals(1,nextBackend.starts.size)
+    }
     @Test fun duplicateStartHasOneNativeExecutor() {
         val b=Backend();val c=controller(backend=b)
         val a=c.start("request","config",limits)
@@ -61,7 +86,7 @@ class AutomationControllerTest {
     }
     @Test fun reservationIsPersistedBeforeNativeStart() {
         val s=Store();s.fail=true;val b=Backend();val c=controller(s,b)
-        assertFailsWith<IllegalStateException>{c.start("request","config",limits)}
+        assertEquals("IdentityPersistenceFailed",assertFailsWith<RpcFailure>{c.start("request","config",limits)}.code)
         assertTrue(b.starts.isEmpty())
     }
     @Test fun stoppingIsNotQuiescenceAndNeverStartsAnotherTask() {
@@ -215,13 +240,13 @@ class AutomationControllerTest {
             c.control(a.runId,"p$n","pause");callback.state(RunState.Paused)
             c.control(a.runId,"r$n","resume");callback.state(RunState.Running)
         }
-        assertFailsWith<RpcFailure>{c.control(a.runId,"exhausted","pause")}
+        repeat(300) { n -> c.control(a.runId,"extra$n","resume") }
         c.control(a.runId,"stop","stop")
         assertEquals("stop",b.controls.last().second)
         c.uncertain(a.runId,"NativeCleanupUnconfirmed")
         c.control(a.runId,"retry-stop","stop")
         assertEquals(RunState.Stopping,c.status(runId=a.runId).state)
-        assertTrue(c.status(runId=a.runId).commands.size<=272)
+        assertTrue(c.status(runId=a.runId).commands.size>272)
     }
     @Test fun staleOldRunCallbackCannotPoisonNewRun() {
         val b=Backend();val c=controller(backend=b);val old=c.start("old","config",limits)

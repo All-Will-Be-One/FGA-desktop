@@ -19,6 +19,14 @@ class ExternalPlanProtocolTest {
     private fun ready(p:ExternalPlanProtocol)=p.apply {open("run")}.publish("run",context,frame)
     private fun plan(r:ExternalReady,id:String="plan",action:JsonObject=buildJsonObject { put("type","skills");put("actions",JsonArray(emptyList())) })=
         ExternalPlan(r.runId,id,r.battleId,r.turnId,r.phase,r.observationId,action)
+    @Test fun provenGoneExecutorEndsSessionWithoutReplayingAcceptedPlan() {
+        val s=Store();val p=protocol(s);val r=ready(p);p.submit(plan(r));p.executing("run","plan")
+        val restarted=protocol(s)
+        restarted.close("run","ProcessRestart",executorGone=true)
+        assertEquals("ended",restarted.next("run").getValue("decisionState").jsonPrimitive.content)
+        assertEquals("Unconfirmed",restarted.status("run","plan").status)
+        assertNull(restarted.accepted("run"))
+    }
     @Test fun repeatedReadsAreNonConsumingAndDuplicateSubmitDoesNotDispatch() {
         val p=protocol();val r=ready(p)
         assertEquals(p.next("run"),p.next("run"))
@@ -60,13 +68,16 @@ class ExternalPlanProtocolTest {
         assertEquals("Accepted",p.status("run","plan").status)
         p.close("run","Abort");assertEquals("Rejected",p.status("run","plan").status)
     }
-    @Test fun persistenceFailureCannotAdmitEffectOrAcknowledgeCompletion() {
+    @Test fun coreIdentityFailureBlocksNewEffectsButCompletionLogFailureDoesNotBlock() {
         val store=Store();val p=protocol(store);val r=ready(p)
-        store.fail=true;assertFailsWith<IllegalStateException>{p.submit(plan(r))};assertNull(p.accepted("run"))
+        store.fail=true;assertFailsWith<RpcFailure>{p.submit(plan(r))};assertNull(p.accepted("run"))
         store.fail=false;p.submit(plan(r));store.fail=true
-        assertFailsWith<IllegalStateException>{p.executing("run","plan")};assertEquals("Accepted",p.status("run","plan").status)
+        assertFailsWith<RpcFailure>{p.executing("run","plan")};assertEquals("Accepted",p.status("run","plan").status)
         store.fail=false;p.executing("run","plan");store.fail=true
-        assertFailsWith<IllegalStateException>{p.completed("run","plan")};assertEquals("Executing",p.status("run","plan").status)
+        p.completed("run","plan");assertEquals("Completed",p.status("run","plan").status)
+        assertNotNull(p.persistenceWarning)
+        p.transition("run");p.publish("run",context,frame)
+        assertEquals("Completed",p.status("run","plan").status)
     }
     @Test fun executingReceiptIsDurableAndCannotReplay() {
         val store=Store();val p=protocol(store);val r=ready(p);p.submit(plan(r));p.executing("run","plan")

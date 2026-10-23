@@ -119,3 +119,14 @@ internal class ScriptRunGate {
 internal object ProcessScriptRunGate {
     val gate = ScriptRunGate()
 }
+
+/** Preserve the upstream creation boundary: only a successful start (or exit callback) marks ownership. */
+internal fun startNativeEntryPoint(start: () -> Unit, onStarted: () -> Unit) {
+    start()
+    onStarted()
+}
+
+/** Optional resource cleanup never recreates an input owner after thread/gesture exit. */
+internal fun closeOptionalNativeResource(close: () -> Unit, diagnostic: (Throwable) -> Unit) {
+    runCatching(close).onFailure { runCatching { diagnostic(it) } }
+}

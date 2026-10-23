@@ -25,7 +25,7 @@ import java.util.UUID
     val reconciliationRequired:Boolean=false, val outcome:String?=null, val withdrawCount:Int=0,
     val createdAtMillis:Long, val updatedAtMillis:Long,
     val events:List<RunEvent> = emptyList(), val commands:List<CommandReceipt> = emptyList(),
-    val decisionMode:String="script",
+    val decisionMode:String="script", val executorInstanceId:String?=null, val persistenceWarning:String?=null,
 ) {
     val active get() = !quiescent
 }
@@ -62,27 +62,51 @@ class AutomationController(
     private val backend:NativeBattleBackend,
     private val now:()->Long={System.currentTimeMillis()},
     private val newId:()->String={UUID.randomUUID().toString()},
+    private val processInstanceId:String?=null,
 ) {
     private var journal=store.load().also { require(it.schemaVersion==1) { "Unsupported journal schema" } }
     init {
         // A process restart is NOT a resume. Preserve ambiguity and the same IDs.
-        if(journal.runs.any { it.active }) {
+        if(journal.runs.any { it.active && (processInstanceId==null || it.executorInstanceId!=processInstanceId) }) {
             journal=journal.copy(runs=journal.runs.map {
-                if(it.active) event(it.copy(state=RunState.NeedsAttention,terminalReason="ProcessRestart",reconciliationRequired=true,error="Previous native executor exit is unconfirmed"),"process_restart") else it
+                if(it.active && (processInstanceId==null || it.executorInstanceId!=processInstanceId)) event(it.copy(state=RunState.NeedsAttention,terminalReason="ProcessRestart",reconciliationRequired=true,error="Previous native executor exit is unconfirmed"),"process_restart") else it
             })
-            store.save(journal)
+            runCatching { store.save(journal) }
         }
     }
     private fun event(run:RunSnapshot,type:String,detail:String?=null):RunSnapshot = run.copy(
         updatedAtMillis=now(), events=(run.events+RunEvent((run.events.lastOrNull()?.sequence ?: 0)+1,type,run.state,now(),detail)).takeLast(512))
-    private fun commit(run:RunSnapshot) {
+    private fun commit(run:RunSnapshot, critical:Boolean=false) {
         val others=journal.runs.filterNot { it.runId==run.runId }
         // Keep request identities forever within the bounded journal capacity;
         // evicting IDs would allow a delayed duplicate to start another battle.
         val next=journal.copy(runs=(others+run).mapIndexed { index,item ->
             if(index<others.size-64 && item.quiescent) item.copy(events=item.events.takeLast(1)) else item
         })
-        store.save(next);journal=next
+        if(critical) {
+            try { store.save(next) }
+            catch(e:Exception) { throw RpcFailure("IdentityPersistenceFailed","Cannot establish unique delivery state: ${e.message}") }
+            journal=next
+        } else {
+            journal=next
+            try { store.save(next) }
+            catch(e:Exception) { journal=next.copy(runs=next.runs.map {
+                if(it.runId==run.runId) it.copy(persistenceWarning=e.message ?: e.javaClass.simpleName) else it
+            }) }
+        }
+    }
+    @Synchronized fun hasUnreleasedOwner() = journal.runs.any { it.active }
+
+    /** Only the process bridge may supply proof that the old process has no runner/input owner. */
+    @Synchronized fun reconcilePreviousProcess(executorAbsent:Boolean):List<String> {
+        if(!executorAbsent || processInstanceId==null) return emptyList()
+        val ids=journal.runs.filter { it.reconciliationRequired && it.executorInstanceId!=processInstanceId }.map { it.runId }
+        for(id in ids) {
+            val run=status(runId=id)
+            commit(event(run.copy(state=RunState.Cancelled,quiescent=true,reconciliationRequired=false,
+                pendingControl=null,terminalReason="ProcessRestart",error="Previous process executor is absent"),"process_reconciled"))
+        }
+        return ids
     }
     @Synchronized fun status(runId:String?=null,requestId:String?=null):RunSnapshot {
         if((runId==null)==(requestId==null)) throw RpcFailure("InvalidRequest","Provide exactly one runId or requestId")
@@ -98,8 +122,8 @@ class AutomationController(
         }
         if(journal.runs.any { it.active }) throw RpcFailure("Busy","An executor owns control or its exit is unconfirmed")
         if(journal.runs.size>=10_000) throw RpcFailure("JournalCapacity","Archive with retained idempotency tombstones before accepting more tasks")
-        val run=event(RunSnapshot(requestId,newId(),configId,limits,RunState.Starting,false,createdAtMillis=now(),updatedAtMillis=now(),decisionMode=decisionMode),"start_accepted")
-        commit(run) // Starting and requestId are durable before native side effects.
+        val run=event(RunSnapshot(requestId,newId(),configId,limits,RunState.Starting,false,createdAtMillis=now(),updatedAtMillis=now(),decisionMode=decisionMode,executorInstanceId=processInstanceId),"start_accepted")
+        commit(run,critical=true) // Starting and requestId are durable before native side effects.
         try {
             backend.start(run,object:NativeBattleCallback {
                 override fun state(state:RunState) { nativeState(run.runId,state) }
@@ -123,10 +147,7 @@ class AutomationController(
         if(run.quiescent) return run
         if(run.reconciliationRequired || (run.state==RunState.NeedsAttention && op!="stop"))
             throw RpcFailure("RequiresReconciliation","Native ownership must be reconciled before this control")
-        // Every accepted mutation identity is retained, including coalesced
-        // commands. Reserve separate capacity for stop and cleanup retries.
-        val capacity=if(op=="stop") 272 else 256
-        if(run.commands.size>=capacity) throw RpcFailure("CommandLimit",if(op=="stop") "Stop retry receipt capacity exhausted; reconcile retained attempts" else "Pause/resume receipt capacity exhausted; stop remains available")
+        // Retain mutation identities; redundant controls must never exhaust stop availability.
         if(run.pendingControl==op || (op=="pause" && run.state==RunState.Paused) ||
             (op=="resume" && run.state==RunState.Running && run.pendingControl==null)) {
             run=event(run.copy(commands=run.commands+CommandReceipt(requestId,op)),op+"_coalesced")

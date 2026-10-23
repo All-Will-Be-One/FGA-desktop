@@ -46,6 +46,8 @@ class ExternalPlanProtocol(
     private val now:()->Long={System.currentTimeMillis()},
     private val newId:()->String={UUID.randomUUID().toString()},
 ) {
+    var persistenceWarning:String?=null
+        private set
     private var journal=store.load().also { require(it.schemaVersion==1) }
     init {
         if(journal.sessions.any { it.decisionState !in setOf("ended","requires_reconciliation") }) {
@@ -56,14 +58,23 @@ class ExternalPlanProtocol(
                         if(it.status in setOf("Accepted","Executing")) it.copy(status="Unconfirmed",reason="ProcessRestart",updatedAtMillis=now()) else it
                     })
             })
-            store.save(next);journal=next
+            journal=next
+            runCatching { store.save(next) }.onFailure { persistenceWarning=it.message ?: it.javaClass.simpleName }
         }
     }
     private fun session(runId:String)=journal.sessions.firstOrNull { it.runId==runId }
         ?: throw RpcFailure("UnknownDecisionRun","No external-plan session")
-    private fun commit(session:ExternalSession) {
+    private fun commit(session:ExternalSession, critical:Boolean=false) {
         val next=journal.copy(sessions=journal.sessions.filterNot { it.runId==session.runId }+session)
-        store.save(next);journal=next
+        if(critical) {
+            try { store.save(next) }
+            catch(e:Exception) { throw RpcFailure("IdentityPersistenceFailed","Cannot establish unique plan delivery state: ${e.message}") }
+            journal=next
+        } else {
+            journal=next
+            runCatching { store.save(next) }
+                .onFailure { persistenceWarning=it.message ?: it.javaClass.simpleName }
+        }
     }
     @Synchronized fun open(runId:String) {
         AutomationController.identifier(runId);permit(runId)
@@ -153,7 +164,7 @@ class ExternalPlanProtocol(
         val receipt=ExternalReceipt(plan.planId,plan.runId,plan.battleId,plan.turnId,plan.phase,plan.observationId,
             plan.action,"Accepted",createdAtMillis=now(),updatedAtMillis=now())
         s=s.copy(decisionState="waiting",receipts=s.receipts+receipt)
-        commit(s)
+        commit(s,critical=true)
         return receipt
     }
     @Synchronized fun accepted(runId:String):ExternalReceipt? = session(runId).receipts.lastOrNull { it.status=="Accepted" }
@@ -175,7 +186,7 @@ class ExternalPlanProtocol(
         val receipt=old.copy(status=status,reason=reason,updatedAtMillis=now())
         commit(s.copy(ready=if(clearReady) null else s.ready,
             decisionState=when(status) { "Executing" -> "executing";"Unconfirmed" -> "requires_reconciliation";else -> "waiting" },
-            receipts=s.receipts.map { if(it.planId==planId) receipt else it }))
+            receipts=s.receipts.map { if(it.planId==planId) receipt else it }),critical=status=="Executing")
         return receipt
     }
     @Synchronized fun completed(runId:String,planId:String) {
@@ -192,7 +203,7 @@ class ExternalPlanProtocol(
         if(s.receipts.any { it.status in setOf("Accepted","Executing") }) throw RpcFailure("InvalidDecisionState","Unresolved action at native transition")
         commit(s.copy(decisionState="transition",ready=null))
     }
-    @Synchronized fun close(runId:String,reason:String) {
+    @Synchronized fun close(runId:String,reason:String,executorGone:Boolean=false) {
         val s=journal.sessions.firstOrNull { it.runId==runId } ?: return
         val receipts=s.receipts.map {
             when(it.status) {
@@ -201,6 +212,6 @@ class ExternalPlanProtocol(
                 else -> it
             }
         }
-        commit(s.copy(decisionState=if(receipts.any { it.status=="Unconfirmed" }) "requires_reconciliation" else "ended",ready=null,receipts=receipts))
+        commit(s.copy(decisionState=if(!executorGone && receipts.any { it.status=="Unconfirmed" }) "requires_reconciliation" else "ended",ready=null,receipts=receipts))
     }
 }

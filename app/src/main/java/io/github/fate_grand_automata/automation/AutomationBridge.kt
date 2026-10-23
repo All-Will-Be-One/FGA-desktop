@@ -18,6 +18,7 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
 import java.util.UUID
+import timber.log.Timber
 
 /** Process-local adapter to the real, UI-shared ScriptManager. No game loop. */
 object AutomationBridge {
@@ -36,7 +37,7 @@ object AutomationBridge {
 
     @Synchronized fun attach(value:ScriptManager) { manager=WeakReference(value) }
     @Synchronized fun executorBusy():Boolean = ProcessScriptRunGate.gate.currentReservation()!=null ||
-        runCatching { controller?.status()?.quiescent==false }.getOrDefault(false)
+        controller?.hasUnreleasedOwner()==true
     @Synchronized fun detach(value:ScriptManager) {
         if(manager.get()===value) manager.clear()
         if(activeRunner===value) owner?.let { controller?.uncertain(it,"ServiceDestroyed") }
@@ -141,11 +142,19 @@ object AutomationBridge {
             controller=AutomationController(FileJournalStore(File(context.filesDir,"automation/runs-v1.json")) { directory ->
                 val fd=Os.open(directory.path,OsConstants.O_RDONLY,0)
                 try { Os.fsync(fd) } finally { Os.close(fd) }
-            },backend)
+            },backend,processInstanceId=instanceId)
             externalPlans=ExternalPlanProtocol(FileExternalJournalStore(File(context.filesDir,"automation/external-plans-v1.json")) { directory ->
                 val fd=Os.open(directory.path,OsConstants.O_RDONLY,0)
                 try { Os.fsync(fd) } finally { Os.close(fd) }
             },::permitExternalPlan)
+            // initialize runs once per Android process. A new controller object alone
+            // never proves a live owner absent; use the actual process gate/runner.
+            val executorAbsent=ProcessScriptRunGate.gate.currentReservation()==null &&
+                activeRunner==null && owner==null && manager.get()?.isExecutorBusy!=true
+            controller?.reconcilePreviousProcess(executorAbsent)?.forEach { id ->
+                runCatching { externalPlans?.close(id,"ProcessRestart",executorGone=true) }
+                    .onFailure { Timber.w(it,"Interrupted external session cleanup failed") }
+            }
             frames=ExternalFrameStore(File(context.cacheDir,"automation-frames"),BuildConfig.APPLICATION_ID+".automation")
             dispatcher=RpcDispatcher(requireNotNull(controller),{
                 buildJsonObject {
