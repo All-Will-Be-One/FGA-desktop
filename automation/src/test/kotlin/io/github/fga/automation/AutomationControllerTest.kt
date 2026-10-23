@@ -112,6 +112,17 @@ class AutomationControllerTest {
         assertEquals(RunState.Failed,c.status(runId=a.runId).state)
         assertEquals("DeadlineExceeded",c.status(runId=a.runId).terminalReason)
     }
+    @Test fun configuredStopsAreNotExecutionFailuresOrInventedWins() {
+        for(reason in listOf("CEGet","FirstClearRewards","LimitMaterials","LimitCEs","StopAfterThisRun")) {
+            val b=Backend(); val c=controller(backend=b)
+            val a=c.start("req","config",RunLimits(3,60))
+            b.callbacks.getValue(a.runId).exit(reason,1)
+            val stopped=c.status(runId=a.runId)
+            assertEquals(RunState.NeedsAttention,stopped.state)
+            assertEquals(reason,stopped.terminalReason); assertEquals(1,stopped.completedRuns)
+            assertTrue(stopped.quiescent)
+        }
+    }
     @Test fun onlyNativeLimitOutcomeCanSucceed() {
         val b=Backend();val c=controller(backend=b);val a=c.start("req","config",limits)
         b.callbacks.getValue(a.runId).exit("Unexpected",1,"failed after clear")
@@ -255,7 +266,7 @@ class AutomationControllerTest {
         val b=Backend();val c=controller(backend=b);val a=c.start("req","config",RunLimits(2,60,true))
         b.callbacks.getValue(a.runId).exit("LimitRuns",2,null,"target_reached",0)
         val done=c.status(runId=a.runId)
-        assertEquals(RunState.Failed,done.state);assertTrue(done.quiescent)
+        assertEquals(RunState.NeedsAttention,done.state);assertTrue(done.quiescent)
         assertEquals("LimitRuns",done.terminalReason);assertEquals(2,done.completedRuns)
     }
 

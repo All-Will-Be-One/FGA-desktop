@@ -166,9 +166,12 @@ class AutomationController(
             reason=="APRanOut" && run.limits.stopOnApEmpty -> RunState.Succeeded
             reason=="RequiresUserConsent" -> RunState.RequiresUserConsent
             reason=="Abort" || reason=="CancelledBeforeStart" -> RunState.Cancelled
+            error==null && reason in setOf("CEGet","LimitCEs","FirstClearRewards","LimitMaterials",
+                "StopAfterThisRun","InventoryFull","SupportSelectionManual","SupportSelectionPreferredNotSet","LimitRuns","APRanOut") ->
+                if(!run.limits.stopOnApEmpty && count>=run.limits.maxRuns) RunState.Succeeded else RunState.NeedsAttention
             else -> RunState.Failed
         }
-        commit(event(run.copy(state=state,quiescent=true,reconciliationRequired=false,pendingControl=null,completedRuns=count.coerceAtLeast(0),outcome=outcome,withdrawCount=withdrawCount.coerceAtLeast(0),terminalReason=run.stopReason ?: reason,error=error ?: if(reason=="LimitRuns" && run.limits.stopOnApEmpty) "Finite run ceiling reached before AP exhaustion" else null),"native_exit",reason))
+        commit(event(run.copy(state=state,quiescent=true,reconciliationRequired=false,pendingControl=null,completedRuns=count.coerceAtLeast(0),outcome=if(reason=="LimitRuns" && run.limits.stopOnApEmpty) "run_ceiling" else outcome,withdrawCount=withdrawCount.coerceAtLeast(0),terminalReason=run.stopReason ?: reason,error=error ?: if(reason=="LimitRuns" && run.limits.stopOnApEmpty) "Finite run ceiling reached before AP exhaustion" else null),"native_exit",reason))
     }
     @Synchronized fun expire(id:String) {
         val run=status(runId=id)
