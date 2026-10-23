@@ -161,6 +161,7 @@ object AutomationBridge {
                     })
                     put("externalPlanProtocolVersion",4)
                     put("platformLifecycleVersion",1)
+                    put("captureDiagnosticVersion",1)
                     put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
                     put("externalPlanLimits",buildJsonObject {
                         put("strategyOwner","FGOAgent");put("frameTransformOwner","FGOAgent")
@@ -185,7 +186,12 @@ object AutomationBridge {
                         }
                     }
                 }
-            },platform={ op,q -> PlatformLifecycle.request(context,op,q) },externalPlans=::externalRequest)
+            },platform={ op,q -> PlatformLifecycle.request(context,op,q) },externalPlans=::externalRequest,
+                diagnostic={
+                    if(executorBusy()) throw RpcFailure("Busy","Capture diagnostic requires an idle runner")
+                    val runner=manager.get() ?: throw RpcFailure("RequiresUserConsent","Prepare the native capture service first")
+                    runner.captureDiagnostic(requireNotNull(frames))
+                })
         } catch(e:Exception) { initializationFailure=e.message ?: "Journal unavailable" }
     }
     @Synchronized fun request(text:String):String = dispatcher?.request(text) ?: buildJsonObject {

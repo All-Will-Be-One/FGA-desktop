@@ -7,6 +7,20 @@ import java.util.concurrent.Executors
 import kotlinx.serialization.json.*
 
 class AutomationControllerTest {
+    @Test fun diagnosticDoesNotStartBattleOrChangeControllerState() {
+        val backend = Backend()
+        val c = controller(backend = backend)
+        var captures = 0
+        val rpc = RpcDispatcher(c, { buildJsonObject {} }, { buildJsonObject {} }, diagnostic = {
+            captures++
+            buildJsonObject { put("captureDiagnosticVersion", 1) }
+        })
+        val response = Json.parseToJsonElement(rpc.request("""{"protocolVersion":1,"op":"diagnostic.capture"}""")).jsonObject
+        assertTrue(response.getValue("ok").jsonPrimitive.boolean)
+        assertEquals(1, captures)
+        assertTrue(backend.starts.isEmpty())
+        assertTrue(backend.controls.isEmpty())
+    }
     class Store:JournalStore {
         var value=Journal();var fail=false
         override fun load()=value

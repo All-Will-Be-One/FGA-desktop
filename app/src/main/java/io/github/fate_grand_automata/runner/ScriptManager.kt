@@ -120,6 +120,21 @@ class ScriptManager @Inject constructor(
     val isAutomationPrepared: Boolean
         get() = TapperService.instance != null && screenshotServiceHolder.screenshotService != null
 
+    /** One read-only capture, sharing the existing runner reservation and screenshot service. */
+    fun captureDiagnostic(store: io.github.fate_grand_automata.automation.ExternalFrameStore): kotlinx.serialization.json.JsonObject {
+        val reservation = runGate.reserve(ScriptRunGate.Owner.Automation)
+            ?: throw io.github.fga.automation.RpcFailure("Busy", "Native runner is occupied")
+        try {
+            val screenshot = screenshotServiceHolder.screenshotService
+                ?: throw io.github.fga.automation.RpcFailure("RequiresUserConsent", "Prepare the capture service first")
+            val component = automationComponentBuilder.screenshotService(screenshot)
+                .runPreferences(ScriptRunPreferences(preferences)).build()
+            return EntryPoints.get(component, ScriptEntryPoint::class.java).captureDiagnostic().capture(store)
+        } finally {
+            runGate.finish(reservation)
+        }
+    }
+
     init {
         AutomationBridge.attach(this)
     }
