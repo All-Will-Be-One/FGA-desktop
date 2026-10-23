@@ -11,6 +11,14 @@ class NativeCardTransactionTest {
         assertEquals(listOf(5, 3, 4), delivered)
         assertTrue(ended)
     }
+    @Test fun `unaccepted NP still delivers all external candidates exactly once`() {
+        val candidates = listOf(7, 6, 2, 1, 3, 4, 5)
+        val delivered = mutableListOf<Int>()
+        deliverNativeCardOrder(candidates, { delivered += it }, {})
+        assertEquals(candidates, delivered)
+        assertEquals(delivered.size, delivered.distinct().size)
+        validateNativeDecision(NativeDecisionContext(1, 1, 1, 1, NativeDecisionPhase.Cards), NativeDecisionAction.Cards(candidates))
+    }
     @Test fun `actual native cancellation interrupts sequence without retry`() {
         val delivered = mutableListOf<Int>()
         assertFailsWith<ScriptAbortException> {

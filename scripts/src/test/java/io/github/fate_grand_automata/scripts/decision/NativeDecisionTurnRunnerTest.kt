@@ -115,7 +115,7 @@ class NativeDecisionTurnRunnerTest {
     }
     @Test fun `card slots and optional enemy index retain basic parameter bounds`() {
         val c = context.copy(phase = NativeDecisionPhase.Cards)
-        for (order in listOf(listOf(1, 1, 2), listOf(0, 2, 3), listOf(1, 2, 9), listOf(1, 2), listOf(1, 2, 3, 4))) {
+        for (order in listOf(listOf(1, 1, 2), listOf(0, 2, 3), listOf(1, 2, 9), listOf(1, 2), listOf(1, 2, 3, 4, 5, 6, 7, 8, 9))) {
             assertFailsWith<IllegalArgumentException> { validateNativeDecision(c, NativeDecisionAction.Cards(order)) }
         }
         assertFailsWith<IllegalArgumentException> { validateNativeDecision(c, NativeDecisionAction.Cards(listOf(1,2,3), 3)) }

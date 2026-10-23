@@ -159,14 +159,14 @@ object AutomationBridge {
                         listOf("battle","farm","configs","start","status","pause","resume","stop","events").forEach { put(it,true) }
                         put("perStepInput",false);put("smartStrategy",false);put("externalPlans",true);put("liveVerified",false)
                     })
-                    put("externalPlanProtocolVersion",4)
+                    put("externalPlanProtocolVersion",5)
                     put("platformLifecycleVersion",1)
                     put("captureDiagnosticVersion",1)
                     put("decisionModes",JsonArray(listOf("script","smart").map(::JsonPrimitive)))
                     put("externalPlanLimits",buildJsonObject {
                         put("strategyOwner","FGOAgent");put("frameTransformOwner","FGOAgent")
                         put("nativeTargetDialogEvidence",false);put("acceptedCardCountEvidence",false)
-                        put("exactCardChoices",3);put("automaticCardFill",false);put("nativeEnemyTargetSlots",3)
+                        put("maxCardCandidates",8);put("candidateCardDelivery",true);put("automaticCardFill",false);put("nativeEnemyTargetSlots",3)
                         put("classicPolicy",false);put("observationTtlSeconds",JsonNull)
                     })
                     put("regions",JsonArray(listOf("CN","JP","NA","TW","KR").map(::JsonPrimitive)))

@@ -124,7 +124,7 @@ class ExternalPlanProtocol(
                 require(phase=="cards")
                 val order=action["order"]?.jsonArray?.map { it.jsonPrimitive.int }
                     ?: throw RpcFailure("InvalidAction","Missing explicit card order")
-                require(order.size==3 && order.distinct().size==3 && order.all { it in 1..8 }) { "Invalid explicit card order" }
+                require(order.size in 3..8 && order.distinct().size==order.size && order.all { it in 1..8 }) { "Invalid explicit card order" }
                 if(action["target"]!=null && action["target"]!=JsonNull) integer("target",0..2)
                 setOf("type","order","target","initialHandEvidence")
             }

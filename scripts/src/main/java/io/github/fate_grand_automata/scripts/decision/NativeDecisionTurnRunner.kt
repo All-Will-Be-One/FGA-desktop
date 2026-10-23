@@ -92,8 +92,8 @@ fun validateNativeDecision(context: NativeDecisionContext, action: NativeDecisio
         is NativeDecisionAction.Cards -> {
             require(context.phase == NativeDecisionPhase.Cards)
             require(action.target == null || action.target in 0..2) { "Unsupported enemy target" }
-            require(action.order.size == 3 && action.order.distinct().size == 3 && action.order.all { it in 1..8 }) {
-                "Cards require exactly three explicit, distinct native slots"
+            require(action.order.size in 3..8 && action.order.distinct().size == action.order.size && action.order.all { it in 1..8 }) {
+                "Cards require three to eight explicit, distinct native slots"
             }
         }
     }

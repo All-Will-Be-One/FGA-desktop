@@ -142,7 +142,7 @@ class ExternalPlanProtocolTest {
     @Test fun exactCardWireShapeRejectsTruncationDuplicatesAndInvalidIndices() {
         val p=protocol();p.open("run")
         val r=p.publish("run",JsonObject(context+mapOf("phase" to JsonPrimitive("cards"))),frame)
-        for (order in listOf(listOf(1,2),listOf(1,2,3,4),listOf(1,1,2),listOf(1,2,9))) {
+        for (order in listOf(listOf(1,2),listOf(1,2,3,4,5,6,7,8,9),listOf(1,1,2),listOf(1,2,9))) {
             val action=buildJsonObject {put("type","cards");put("order",JsonArray(order.map(::JsonPrimitive)))}
             assertFailsWith<IllegalArgumentException>{p.submit(plan(r,action=action))}
         }
