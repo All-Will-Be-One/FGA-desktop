@@ -16,7 +16,6 @@ import io.github.fate_grand_automata.automation.platform.PlatformLifecycle
 import kotlinx.serialization.json.*
 import java.io.File
 import java.lang.ref.WeakReference
-import java.security.MessageDigest
 import java.util.UUID
 import timber.log.Timber
 
@@ -71,11 +70,6 @@ object AutomationBridge {
                                 SystemClock.elapsedRealtime()+remaining).copy(decisionMode=run.decisionMode)
                         } catch(e:Exception) {
                             callback.rejected((e as? BattleRunValidationException)?.code ?: "InvalidConfiguration",e.message ?: "Invalid native battle configuration")
-                            return@post
-                        }
-                        val commandSnapshot=prefs.battleConfigs.firstOrNull {it.id==run.configId}?.skillCommand
-                        if(commandSnapshot==null) {
-                            callback.rejected("UnknownConfig","Selected configuration disappeared before native dispatch")
                             return@post
                         }
                         try {
@@ -183,18 +177,9 @@ object AutomationBridge {
                     put("resources","none");put("resumeAfterProcessDeath",false)
                 }
             },{
-                buildJsonObject {
-                    putJsonArray("configs") {
-                        prefs.battleConfigs.forEach { config ->
-                            val explicit=config.server ?: runCatching {manager.get()?.automationRequest(config.id,1,300)?.server}.getOrNull()
-                            add(buildJsonObject {
-                                put("id",config.id);put("name",config.name)
-                                put("server",explicit?.let { JsonPrimitive(region(it)) } ?: JsonNull)
-                                put("scriptSha256",MessageDigest.getInstance("SHA-256").digest(config.skillCommand.toByteArray()).joinToString("") { "%02x".format(it) })
-                            })
-                        }
-                    }
-                }
+                automationConfigurations(prefs.battleConfigs,{ config ->
+                    config.server ?: runCatching {manager.get()?.automationRequest(config.id,1,300)?.server}.getOrNull()
+                },::region)
             },platform={ op,q -> PlatformLifecycle.request(context,op,q) },externalPlans=::externalRequest,
                 diagnostic={
                     if(executorBusy()) throw RpcFailure("Busy","Capture diagnostic requires an idle runner")

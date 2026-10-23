@@ -15,6 +15,7 @@ import io.github.fate_grand_automata.accessibility.AccessibilityGestureException
 import io.github.fate_grand_automata.accessibility.AccessibilityGestures
 import io.github.fate_grand_automata.accessibility.GestureFailure
 import io.github.fate_grand_automata.automation.AutomationBridge
+import io.github.fate_grand_automata.automation.automationConfig
 import io.github.fate_grand_automata.di.script.ScriptComponent
 import io.github.fate_grand_automata.di.script.ScriptComponentBuilder
 import io.github.fate_grand_automata.di.script.ScriptEntryPoint
@@ -318,8 +319,7 @@ class ScriptManager @Inject constructor(
     /** Uses a recorded config server, explicit setting or positive detection; never a default. */
     fun automationRequest(configId: String, maxRuns: Int, timeoutSeconds: Long,
                           startDeadlineElapsedRealtimeMillis: Long? = null): BattleRunRequest {
-        val config = preferences.battleConfigs.firstOrNull { it.id == configId }
-            ?: throw BattleRunValidationException("UnknownConfig", "Battle configuration does not exist")
+        val config = automationConfig(preferences.battleConfigs, configId)
         val rawServer = prefsCore.gameServerRaw.get()
         val server = config.server ?: GameServers.deserialize(rawServer)
             ?: (if (rawServer == PrefsCore.GAME_SERVER_AUTO_DETECT) TapperService.instance?.detectedFgoServer else null)
